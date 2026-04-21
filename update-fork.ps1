@@ -33,7 +33,7 @@ Write-Host "Текущая ветка: $currentBranch" -ForegroundColor Gray
 
 Write-Host ""
 Write-Host "=== Скачиваю обновления ===" -ForegroundColor Cyan
-git fetch upstream --tags
+git fetch upstream --tags --force
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ОШИБКА: upstream недоступен" -ForegroundColor Red
     Write-Host "Проверь: git remote -v" -ForegroundColor Yellow
