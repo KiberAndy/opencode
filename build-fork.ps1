@@ -10,7 +10,7 @@ bun install
 if ($LASTEXITCODE -ne 0) { throw "bun install failed" }
 
 Write-Host "=== Step 2: Build ===" -ForegroundColor Cyan
-bun run build
+bun run --cwd packages/opencode build -- --single
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 Write-Host ""
