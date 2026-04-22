@@ -6,6 +6,7 @@ import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
+import { CopyTool } from "./copy"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
@@ -108,6 +109,8 @@ const layer = Layer.effect(
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
     const shell = yield* ShellTool
+    const copy = yield* CopyTool
+    const codesearch = yield* CodeSearchTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
@@ -213,6 +216,7 @@ const layer = Layer.effect(
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
           edit: Tool.init(edit),
+          copy: Tool.init(copy),
           write: Tool.init(writetool),
           task: Tool.init(task),
           fetch: Tool.init(webfetch),
@@ -234,8 +238,9 @@ const layer = Layer.effect(
             tool.shell,
             tool.read,
             tool.glob,
-            tool.grep,
+tool.grep,
             tool.edit,
+            tool.copy,
             tool.write,
             tool.task,
             tool.fetch,
