@@ -1,0 +1,22 @@
+Copies a block of text from one file and inserts it into another file.
+
+Usage:
+- Use this tool when you need to transfer code/text between files without rewriting.
+- This is much faster than manually copying content since the AI handles the exact placement.
+- Source content can be specified by:
+  - sourceString: Exact text block to copy (fuzzy matching supported)
+  - sourceLineStart/sourceLineEnd: Exact line numbers (1-indexed)
+- Destination is always specified by:
+  - destFile: Target file path
+  - destAnchor: Exact text already in destFile to position insertion
+  - insert: "before" (insert before anchor), "after" (insert after anchor), or "replace" (replace anchor with source)
+
+Examples:
+- Copy a function to a new file: sourceString=function foo(), destAnchor=// Entry point, insert=after
+- Insert imports before a function: sourceString=import React, destAnchor=export function, insert=before
+- Replace a placeholder: sourceString=<placeholder/>, destAnchor=<placeholder/>, insert=replace
+
+Notes:
+- You must use the Read tool on both files before using this tool.
+- Line endings (CRLF/LF) are preserved based on the destination file's format.
+- When specifying strings, include surrounding context for accuracy.
