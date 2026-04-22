@@ -1,0 +1,7 @@
+Line with 
+dup
+Hello World
+Line 2
+Line 3
+Another dup
+Last line

@@ -1,0 +1,4 @@
+Line with tabs\ttabbed content
+Line with emoji 🎉
+Line with special chars: < > & " '
+Line with unicode: ∑ ∏ √ ∞
