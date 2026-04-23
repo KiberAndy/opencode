@@ -82,9 +82,9 @@ const Parameters = z.object({
     .min(1)
     .describe("The file to copy to (absolute or relative path)"),
   destAnchor: z
-    .string()
-    .min(1)
-    .describe("The exact text in destFile where insertion will occur"),
+  .string()
+  .min(0)  // было min(1)
+  .describe("The exact text in destFile where insertion will occur"),
   insert: z
     .enum(["before", "after", "replace"])
     .describe("Insertion position relative to destAnchor"),
@@ -188,20 +188,54 @@ interface AnchorResolutionResult {
   readonly after: string
 }
 
+function normalizeWhitespace(s: string): string {
+  return s.replace(/[^\S\n]+/g, " ").trimEnd()
+}
+
 function resolveDestAnchor(
   rawDestContent: string,
   destAnchor: string,
 ): AnchorResolutionResult | null {
   const normalizedContent = toUnix(rawDestContent)
   const normalizedAnchor = toUnix(destAnchor)
-  const idx = normalizedContent.indexOf(normalizedAnchor)
-  if (idx === -1) return null
 
-  return {
-    before: normalizedContent.slice(0, idx),
-    anchor: normalizedAnchor,
-    after: normalizedContent.slice(idx + normalizedAnchor.length),
+  const makeResult = (before: string, anchor: string, after: string): AnchorResolutionResult => ({
+    before: before.endsWith("\n") ? before.slice(0, -1) : before,
+    anchor,
+    after: after.startsWith("\n") ? after.slice(1) : after,
+  })
+
+  // Exact match
+  const idx = normalizedContent.indexOf(normalizedAnchor)
+  if (idx !== -1) {
+    return makeResult(
+      normalizedContent.slice(0, idx),
+      normalizedAnchor,
+      normalizedContent.slice(idx + normalizedAnchor.length),
+    )
   }
+
+  // Fuzzy match
+  const anchorLines = normalizedAnchor.split("\n")
+  const contentLines = normalizedContent.split("\n")
+  for (let i = 0; i <= contentLines.length - anchorLines.length; i++) {
+    let match = true
+    for (let j = 0; j < anchorLines.length; j++) {
+      if (normalizeWhitespace(contentLines[i + j]) !== normalizeWhitespace(anchorLines[j])) {
+        match = false
+        break
+      }
+    }
+    if (match) {
+      return makeResult(
+        contentLines.slice(0, i).join("\n"),
+        contentLines.slice(i, i + anchorLines.length).join("\n"),
+        contentLines.slice(i + anchorLines.length).join("\n"),
+      )
+    }
+  }
+
+  return null
 }
 
 // ─────────────────────────────────────────────
@@ -215,17 +249,27 @@ function assembleDestContent(
 ): string {
   const { before, anchor, after } = parts
 
+  // sep: соединяет два сегмента ровно одним \n если оба непустые
+  const sep = (a: string, b: string): string => {
+    if (a.length === 0) return b
+    if (b.length === 0) return a
+    return a + "\n" + b
+  }
+
   switch (insert) {
     case "before": {
-      const sep = before.endsWith("\n") || before === "" ? "" : "\n"
-      return before + sep + sourceContent + "\n" + anchor + after
+      // before \n source \n anchor + \n + after (after уже содержит внутренние \n)
+      const tail = after.length > 0 ? anchor + "\n" + after : anchor
+      return sep(sep(before, sourceContent), tail)
     }
     case "after": {
-      const trail = after.startsWith("\n") || after === "" ? "" : "\n"
-      return before + anchor + "\n" + sourceContent + trail + after
+      // before + \n + anchor \n source \n after
+      const head = before.length > 0 ? before + "\n" + anchor : anchor
+      return sep(head, sep(sourceContent, after))
     }
     case "replace": {
-      return before + sourceContent + after
+      // before + source + \n + after (если after непустой)
+      return after.length > 0 ? before + sourceContent + "\n" + after : before + sourceContent + after
     }
     default: {
       const _never: never = insert

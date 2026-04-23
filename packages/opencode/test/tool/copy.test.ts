@@ -1101,4 +1101,217 @@ describe("tool.copy", () => {
       })
     })
   })
+
+  // =========================================================================
+  // NEWLINE INSERTION BUGS
+  // =========================================================================
+  describe("newline insertion bugs", () => {
+    test("insert before adds newline between source and anchor", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "source.txt")
+      const dst = path.join(tmp.path, "dest.txt")
+
+      await fs.writeFile(src, "def hello():\n    print('hello')")
+      await fs.writeFile(dst, "def foo():\n    print('foo')")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "def hello():\n    print('hello')",
+        destFile: dst,
+        destAnchor: "def foo():\n    print('foo')",
+        insert: "before",
+      })
+
+      // MUST have blank line between functions
+      expect(content).toBe("def hello():\n    print('hello')\ndef foo():\n    print('foo')")
+    })
+
+    test("insert after adds newline between anchor and source", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "source.txt")
+      const dst = path.join(tmp.path, "dest.txt")
+
+      await fs.writeFile(src, "def world():\n    print('world')")
+      await fs.writeFile(dst, "def foo():\n    print('foo')")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "def world():\n    print('world')",
+        destFile: dst,
+        destAnchor: "def foo():\n    print('foo')",
+        insert: "after",
+      })
+
+      // MUST have blank line between functions
+      expect(content).toBe("def foo():\n    print('foo')\ndef world():\n    print('world')")
+    })
+
+    test("insert before with multiple lines preserves blank lines", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "source.ts")
+      const dst = path.join(tmp.path, "dest.ts")
+
+      await fs.writeFile(src, "class Foo {}\nclass Bar {}")
+      await fs.writeFile(dst, "class Baz {}")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "class Foo {}\nclass Bar {}",
+        destFile: dst,
+        destAnchor: "class Baz {}",
+        insert: "before",
+      })
+
+      // Must have newlines between all three classes
+      expect(content).toBe("class Foo {}\nclass Bar {}\nclass Baz {}")
+    })
+
+    test("insert after with multiple lines preserves blank lines", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "X\nY")
+      await fs.writeFile(dst, "A")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "X\nY",
+        destFile: dst,
+        destAnchor: "A",
+        insert: "after",
+      })
+
+      expect(content).toBe("A\nX\nY")
+    })
+  })
+
+  // =========================================================================
+  // WHITESPACE ANCHOR BUGS
+  // =========================================================================
+  describe("whitespace anchor bugs", () => {
+    test("anchor with extra spaces matches", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "NEW")
+      // dest has 2 spaces after "def"
+      await fs.writeFile(dst, "def  foo():\n    pass")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "NEW",
+        destFile: dst,
+        destAnchor: "def foo():", // anchor with 1 space
+        insert: "replace",
+      })
+
+      expect(content).toContain("NEW")
+    })
+
+    test("anchor with tabs matches anchor with spaces", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "CONTENT")
+      // dest uses tab
+      await fs.writeFile(dst, "def\tfoo():\n    pass")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "CONTENT",
+        destFile: dst,
+        destAnchor: "def foo():", // anchor with space
+        insert: "replace",
+      })
+
+      expect(content).toContain("CONTENT")
+    })
+
+    test("whitespace difference is normalized for matching", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "src.ts")
+      const dst = path.join(tmp.path, "dst.ts")
+
+      await fs.writeFile(src, "HELPER")
+      await fs.writeFile(dst, "function   helper() {}")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "HELPER",
+        destFile: dst,
+        destAnchor: "function helper() {}",
+        insert: "replace",
+      })
+
+      expect(content).toContain("HELPER")
+    })
+  })
+
+  // =========================================================================
+  // INSERT POSITION BUGS
+  // =========================================================================
+  describe("insert position bugs", () => {
+    test("insert after does not merge with next line", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "source.txt")
+      const dst = path.join(tmp.path, "dest.txt")
+
+      await fs.writeFile(src, "MIDDLE")
+      await fs.writeFile(dst, "TOP\nMIDDLE_OLD\nBOTTOM")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "MIDDLE",
+        destFile: dst,
+        destAnchor: "TOP",
+        insert: "after",
+      })
+
+      // MIDDLE should be inserted after TOP, NOT merge with MIDDLE_OLD
+      expect(content).toBe("TOP\nMIDDLE\nMIDDLE_OLD\nBOTTOM")
+    })
+
+    test("insert before does not merge with anchor line", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "INSERTED")
+      await fs.writeFile(dst, "ORIGINAL\nNEXT")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "INSERTED",
+        destFile: dst,
+        destAnchor: "ORIGINAL",
+        insert: "before",
+      })
+
+      expect(content).toBe("INSERTED\nORIGINAL\nNEXT")
+      expect(content.indexOf("INSERTED\nORIGINAL")).toBeGreaterThan(-1)
+    })
+
+    test("insert after at end of file works correctly", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "LAST")
+      await fs.writeFile(dst, "A\nB")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "LAST",
+        destFile: dst,
+        destAnchor: "B",
+        insert: "after",
+      })
+
+      // LAST goes AFTER B, with newline
+      expect(content).toBe("A\nB\nLAST")
+    })
+  })
 })
