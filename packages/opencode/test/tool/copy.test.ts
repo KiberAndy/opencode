@@ -1313,5 +1313,73 @@ describe("tool.copy", () => {
       // LAST goes AFTER B, with newline
       expect(content).toBe("A\nB\nLAST")
     })
+
+    test("replace adds newline between source and after content", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "NEW")
+      await fs.writeFile(dst, "OLD\nexisting\nmore")
+
+      const { content } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "NEW",
+        destFile: dst,
+        destAnchor: "OLD",
+        insert: "replace",
+      })
+
+      // MUST have newline between NEW and existing
+      expect(content).toBe("NEW\nexisting\nmore")
+    })
+  })
+
+  // =========================================================================
+  // AMBIGUOUS ANCHOR WARNING
+  // =========================================================================
+  describe("ambiguous anchor warning", () => {
+    test("warning appears when anchor matches multiple times", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "X")
+      // anchor "DUPLICATE" appears twice
+      await fs.writeFile(dst, "DUPLICATE\nA\nDUPLICATE\nB")
+
+      const { result } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "X",
+        destFile: dst,
+        destAnchor: "DUPLICATE",
+        insert: "after",
+      })
+
+      // Should warn about multiple matches
+      expect(result.output).toContain("matched 2 times")
+      expect(result.output).toContain("used first occurrence")
+    })
+
+    test("no warning when anchor matches once", async () => {
+      await using tmp = await tmpdir()
+      const src = path.join(tmp.path, "s.txt")
+      const dst = path.join(tmp.path, "d.txt")
+
+      await fs.writeFile(src, "X")
+      await fs.writeFile(dst, "UNIQUE\ncontent")
+
+      const { result } = await runCopy(tmp, {
+        sourceFile: src,
+        sourceString: "X",
+        destFile: dst,
+        destAnchor: "UNIQUE",
+        insert: "before",
+      })
+
+      // No warning
+      expect(result.output).not.toContain("matched")
+      expect(result.output).not.toContain("Warning")
+    })
   })
 })

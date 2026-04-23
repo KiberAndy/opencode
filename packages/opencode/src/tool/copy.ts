@@ -238,6 +238,17 @@ function resolveDestAnchor(
   return null
 }
 
+function countAnchorOccurrences(content: string, anchor: string): number {
+  if (anchor.length === 0) return 0
+  let count = 0
+  let pos = 0
+  while ((pos = content.indexOf(anchor, pos)) !== -1) {
+    count++
+    pos += anchor.length
+  }
+  return count
+}
+
 // ─────────────────────────────────────────────
 // Content assembly
 // ─────────────────────────────────────────────
@@ -452,6 +463,11 @@ export const CopyTool = Tool.define(
             })
           }
 
+          const anchorCount = countAnchorOccurrences(
+            toUnix(destRaw),
+            toUnix(params.destAnchor),
+          )
+
           // ── 10. Assemble ────────────────────────────────────────
           const assembledUnix = assembleDestContent(
             anchorResult,
@@ -515,10 +531,15 @@ export const CopyTool = Tool.define(
                 ? "inserted before"
                 : "inserted after"
 
+          const ambiguityWarning =
+            anchorCount > 1
+              ? ` Warning: destAnchor matched ${anchorCount} times — used first occurrence.`
+              : ""
+
           const output =
             `Copied ${lines} line${lines !== 1 ? "s" : ""} from ` +
             `${sourceRelative} (lines ${lineStart}-${lineEnd}) to ` +
-            `${destRelative}, ${insertDesc} anchor.`
+            `${destRelative}, ${insertDesc} anchor.${ambiguityWarning}`
 
           return {
             metadata: {
