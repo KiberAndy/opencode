@@ -1,0 +1,37 @@
+Verify that 1 to 10 text fragments appear verbatim on a public web page.
+
+Use this tool when you need to ground a claim in a primary source and prove that a
+quotation was copied correctly. The tool downloads the given `url`, extracts the
+textual content (stripping script/style/HTML tags), then performs a strict
+character-for-character comparison for each supplied quote.
+
+Input JSON shape:
+{
+  "url": "https://example.com/article",
+  "quotes": {
+    "Q1": "Exact text that must appear on the page",
+    "Q2": "Second quote",
+    ...
+  }
+}
+
+Rules:
+- `url` must start with `http://` or `https://`. Private, loopback and
+  link-local hosts are rejected (SSRF protection).
+- `quotes` is an object with keys `Q1`..`Q10`. Provide between 1 and 10
+  entries. Values must be non-empty strings.
+- Each quote is compared as a literal substring of the extracted page text.
+  Any difference - even a single whitespace, letter case, punctuation,
+  invisible character (BOM, NBSP) or typo - causes the quote to be rejected.
+- The tool NEVER normalizes, fuzzes, or corrects the text it compares.
+- An approved quote is returned with its `match_index` (0-based offset into
+  the page text). A rejected quote is returned with a reason:
+    - `not_found`           - no close match on the page
+    - `character_mismatch`  - at least one character differs
+    - `whitespace_mismatch` - only spacing / line breaks differ
+    - `case_mismatch`       - only letter case differs
+    - `encoding_mismatch`   - only Unicode normalization differs (NBSP, BOM,
+                              ligatures, precomposed vs combining forms)
+
+The response includes a per-quote result map plus a summary counting approved
+and rejected quotes and a `batch_status` of `all`, `partial` or `none`.
