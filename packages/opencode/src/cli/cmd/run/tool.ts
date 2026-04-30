@@ -33,6 +33,7 @@ import type { TodoWriteTool } from "@/tool/todo"
 import type { WebFetchTool } from "@/tool/webfetch"
 import { webSearchProviderLabel, type WebSearchTool } from "@/tool/websearch"
 import type { WriteTool } from "@/tool/write"
+import { renderQuoteLines, type QuoteTool } from "@/tool/quote"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
 import * as Locale from "@/util/locale"
 import type { RunEntryBody, StreamCommit, ToolSnapshot } from "./types"
@@ -110,6 +111,7 @@ type ToolDefs = {
   websearch: typeof WebSearchTool
   skill: typeof SkillTool
   plan_exit: typeof PlanExitTool
+  quote: typeof QuoteTool
 }
 
 type ToolName = keyof ToolDefs
@@ -476,6 +478,21 @@ function runPlanExit(p: ToolProps<typeof PlanExitTool>): ToolInline {
     title: text(p.frame.state.title) || "Switching to build agent",
     mode: "block",
     body: p.frame.status === "completed" ? text(p.frame.state.output) : undefined,
+  }
+}
+
+function runQuote(p: ToolProps<typeof QuoteTool>): ToolInline {
+  const lines = renderQuoteLines(p.input.quotes, p.metadata.results)
+  const summary = p.metadata.summary
+  const description = summary
+    ? `[url=${p.input.url}] (${summary.approved}/${summary.total} approved)`
+    : `[url=${p.input.url}]`
+  return {
+    icon: "⚙",
+    title: "quote",
+    description,
+    mode: "block",
+    body: lines.join("\n"),
   }
 }
 
@@ -1225,6 +1242,17 @@ const TOOL_RULES = {
       final: false,
     },
     run: runPlanExit,
+    scroll: {
+      start: () => "",
+    },
+  },
+  quote: {
+    view: {
+      output: false,
+      final: true,
+      snap: "structured",
+    },
+    run: runQuote,
     scroll: {
       start: () => "",
     },

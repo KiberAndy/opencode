@@ -38,7 +38,7 @@ export type QuoteResult =
   | { status: "approved"; match_index: number }
   | { status: "rejected"; reason: "not_found" | "character_mismatch" | "whitespace_mismatch" | "case_mismatch" | "encoding_mismatch" }
 
-export interface QuoteResponse {
+export type QuoteResponse = {
   url: string
   results: Record<string, QuoteResult>
   summary: {
@@ -158,17 +158,34 @@ export function collectQuotes(quotes: Schema.Schema.Type<typeof QuotesSchema>): 
 }
 
 export function buildResponse(url: string, entries: Array<[QuoteKey, string]>, pageText: string): QuoteResponse {
-  const results: Record<string, QuoteResult> = {}
-  let approved = 0
-  for (const [key, quote] of entries) {
-    const result = matchQuote(pageText, quote)
-    results[key] = result
-    if (result.status === "approved") approved += 1
-  }
-  const total = entries.length
+  const matched = entries.map(([key, quote]) => [key, matchQuote(pageText, quote)] as const)
+  const results = Object.fromEntries(matched)
+  const total = matched.length
+  const approved = matched.filter(([, r]) => r.status === "approved").length
   const rejected = total - approved
   const batch_status: "all" | "partial" | "none" = approved === total ? "all" : approved === 0 ? "none" : "partial"
   return { url, results, summary: { total, approved, rejected, batch_status } }
+}
+
+/**
+ * Build the per-quote lines used by the CLI and TUI renderers. Each entry is
+ * rendered as `| <text>` for approved quotes and `| <text> (rejected: <reason>)`
+ * for rejected ones, in stable Q1..Q10 order. Newlines inside a quote are
+ * collapsed so each quote stays on a single visual line.
+ */
+export function renderQuoteLines(
+  quotes: Partial<Record<QuoteKey, string>> | undefined,
+  results: Record<string, QuoteResult> | undefined,
+): string[] {
+  if (!quotes) return []
+  return QUOTE_KEYS.flatMap((key) => {
+    const text = quotes[key]
+    if (typeof text !== "string" || text.length === 0) return []
+    const safe = text.replace(/\r?\n/g, " ")
+    const result = results?.[key]
+    if (!result || result.status === "approved") return [`| ${safe}`]
+    return [`| ${safe} (rejected: ${result.reason})`]
+  })
 }
 
 export const QuoteTool = Tool.define(
