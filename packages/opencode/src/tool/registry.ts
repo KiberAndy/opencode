@@ -110,7 +110,6 @@ const layer = Layer.effect(
     const websearch = yield* WebSearchTool
     const shell = yield* ShellTool
     const copy = yield* CopyTool
-    const codesearch = yield* CodeSearchTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool

@@ -1,15 +1,14 @@
-import z from "zod"
-import * as path from "path"
-import { Effect, Semaphore } from "effect"
+import { Effect, Schema, Semaphore } from "effect"
 import * as Tool from "./tool"
-import { LSP } from "../lsp"
+import { LSP } from "@/lsp/lsp"
 import { createTwoFilesPatch, diffLines } from "diff"
 import DESCRIPTION from "./copy.txt"
 import { Bus } from "../bus"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Format } from "../format"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import * as path from "path"
 import { Instance } from "../project/instance"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -46,58 +45,38 @@ function getLock(absolutePath: string): Semaphore.Semaphore {
 // Schema
 // ─────────────────────────────────────────────
 
-const Parameters = z.object({
-  sourceFile: z
-    .string()
-    .min(1)
-    .describe("The file to copy from (absolute or relative path)"),
-  sourceString: z
-    .string()
-    .optional()
-    .describe(
+const Parameters = Schema.Struct({
+  sourceFile: Schema.String.annotate({ description: "The file to copy from (absolute or relative path)" }),
+  sourceString: Schema.optional(Schema.String).annotate({
+    description:
       "The exact text block to copy from sourceFile. " +
-        "Must match exactly including whitespace and indentation. " +
-        "Optional when sourceLineStart/sourceLineEnd are provided.",
-    ),
-  sourceLineStart: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe(
+      "Must match exactly including whitespace and indentation. " +
+      "Optional when sourceLineStart/sourceLineEnd are provided.",
+  }),
+  sourceLineStart: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))).annotate({
+    description:
       "Starting line number to copy (1-indexed, inclusive). " +
-        "Must be used together with sourceLineEnd.",
-    ),
-  sourceLineEnd: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe(
+      "Must be used together with sourceLineEnd.",
+  }),
+  sourceLineEnd: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))).annotate({
+    description:
       "Ending line number to copy (1-indexed, inclusive). " +
-        "Must be used together with sourceLineStart.",
-    ),
-  destFile: z
-    .string()
-    .min(1)
-    .describe("The file to copy to (absolute or relative path)"),
-  destAnchor: z
-  .string()
-  .min(0)  // было min(1)
-  .describe("The exact text in destFile where insertion will occur"),
-  insert: z
-    .enum(["before", "after", "replace"])
-    .describe("Insertion position relative to destAnchor"),
-  validate: z
-    .boolean()
-    .optional()
-    .describe(
-      "Re-validate that the source hasn't changed before writing. Defaults to true.",
-    ),
+      "Must be used together with sourceLineStart.",
+  }),
+  destFile: Schema.String.annotate({ description: "The file to copy to (absolute or relative path)" }),
+  destAnchor: Schema.String.annotate({ description: "The exact text in destFile where insertion will occur" }),
+  insert: Schema.Union([
+    Schema.Literal("before"),
+    Schema.Literal("after"),
+    Schema.Literal("replace"),
+  ]).annotate({ description: "Insertion position relative to destAnchor" }),
+  validate: Schema.optional(Schema.Boolean).annotate({
+    description: "Re-validate that the source hasn't changed before writing. Defaults to true.",
+  }),
 })
 
-type Parameters = z.infer<typeof Parameters>
-type InsertMode = Parameters["insert"]
+type Parameters = Schema.Schema.Type<typeof Parameters>
+type InsertMode = "before" | "after" | "replace"
 
 // ─────────────────────────────────────────────
 // Line-ending utilities
@@ -520,7 +499,7 @@ export const CopyTool = Tool.define(
           const filediff = { file: destFile, patch: diff, additions, deletions }
 
           yield* ctx.metadata({ metadata: { diff, filediff } })
-          yield* lsp.touchFile(destFile, true)
+          yield* lsp.touchFile(destFile, "full")
 
           // ── 15. Result ──────────────────────────────────────────
           const lines = sourceContent.split("\n").length

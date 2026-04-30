@@ -5,13 +5,25 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { CopyTool } from "../../src/tool/copy"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
-import { LSP } from "../../src/lsp"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { LSP } from "../../src/lsp/lsp"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Format } from "../../src/format"
 import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
-import { Truncate } from "../../src/tool"
+import { Truncate } from "../../src/tool/truncate"
 import { SessionID, MessageID } from "../../src/session/schema"
+import type * as Copy from "../../src/tool/copy"
+
+type CopyParams = {
+  sourceFile: string
+  sourceString?: string
+  sourceLineStart?: number
+  sourceLineEnd?: number
+  destFile: string
+  destAnchor: string
+  insert: "before" | "after" | "replace"
+  validate?: boolean
+}
 
 // ---------------------------------------------------------------------------
 // Shared context & runtime
@@ -62,7 +74,7 @@ const resolve = () =>
 /** Run copy.execute inside an Instance.provide context. Returns { result, content }. */
 async function runCopy(
   tmp: { path: string },
-  params: Parameters<Awaited<ReturnType<typeof resolve>>["execute"]>[0],
+  params: CopyParams,
 ) {
   let result!: { output: string; metadata: unknown; title: string }
   let content: string | undefined
@@ -73,9 +85,9 @@ async function runCopy(
       const copy = await resolve()
       result = await Effect.runPromise(copy.execute(params, ctx) as any)
       if (params.destFile) {
-        const abs = path.isAbsolute(params.destFile as string)
-          ? (params.destFile as string)
-          : path.join(tmp.path, params.destFile as string)
+        const abs = path.isAbsolute(params.destFile)
+          ? params.destFile
+          : path.join(tmp.path, params.destFile)
         content = await fs.readFile(abs, "utf-8")
       }
     },
