@@ -13,6 +13,7 @@ import {
   isBlockedHost,
   Parameters,
   renderQuoteLines,
+  validateQuotesInput,
 } from "../../src/tool/quote"
 import { SessionID, MessageID } from "../../src/session/schema"
 import type { Tool } from "@/tool/tool"
@@ -122,6 +123,52 @@ describe("tool.quote buildResponse / collectQuotes", () => {
 
     const none = buildResponse(url, entries, "unrelated content here")
     expect(none.summary).toEqual({ total: 2, approved: 0, rejected: 2, batch_status: "none" })
+  })
+})
+
+describe("tool.quote validateQuotesInput", () => {
+  test("accepts a sparse subset of Q1..Q10 in any input order", () => {
+    const entries = validateQuotesInput({ Q3: "c", Q1: "a", Q10: "j" })
+    expect(entries).toEqual([
+      ["Q1", "a"],
+      ["Q3", "c"],
+      ["Q10", "j"],
+    ])
+  })
+
+  test("rejects empty payload", () => {
+    expect(() => validateQuotesInput({})).toThrow(/at least 1 entry/i)
+  })
+
+  test("rejects payloads with more than 10 entries", () => {
+    const quotes = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`Q${i + 1}`, `q${i}`]))
+    expect(() => validateQuotesInput(quotes)).toThrow(/at most 10 entries/i)
+  })
+
+  test("rejects unknown keys outside Q1..Q10", () => {
+    expect(() => validateQuotesInput({ Q11: "x" })).toThrow(/unknown keys: Q11/)
+    expect(() => validateQuotesInput({ Q0: "x" })).toThrow(/unknown keys: Q0/)
+    expect(() => validateQuotesInput({ A1: "x" })).toThrow(/unknown keys: A1/)
+    expect(() => validateQuotesInput({ "Q1.5": "x" })).toThrow(/unknown keys: Q1\.5/)
+    expect(() => validateQuotesInput({ Q1: "ok", Q11: "bad", Q12: "bad" })).toThrow(/Q11, Q12/)
+  })
+
+  test("rejects empty-string values", () => {
+    expect(() => validateQuotesInput({ Q1: "" })).toThrow(/non-empty/i)
+  })
+
+  test("rejects whitespace-only values (spaces, tabs, newlines)", () => {
+    expect(() => validateQuotesInput({ Q1: "   " })).toThrow(/non-whitespace/i)
+    expect(() => validateQuotesInput({ Q1: "\n\t " })).toThrow(/non-whitespace/i)
+    expect(() => validateQuotesInput({ Q1: "\u00A0\u00A0" })).toThrow(/non-whitespace/i)
+  })
+
+  test("does not silently drop Q11 when valid Q1..Q10 are also present", () => {
+    const quotes = Object.fromEntries([
+      ...Array.from({ length: 10 }, (_, i) => [`Q${i + 1}`, `q${i}`]),
+      ["Q11", "extra"],
+    ])
+    expect(() => validateQuotesInput(quotes)).toThrow(/at most 10 entries.*got 11/i)
   })
 })
 
@@ -423,6 +470,31 @@ describe("tool.quote execute", () => {
     await expect(
       inInstance(() => exec({ url: "https://example.com/", quotes: { Q1: "" } as Args["quotes"] })),
     ).rejects.toBeDefined()
+  })
+
+  test("rejects more than 10 quotes (no silent truncation of Q11+)", async () => {
+    const quotes = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`Q${i + 1}`, `frag-${i + 1}`])) as Args["quotes"]
+    await expect(
+      inInstance(() => exec({ url: "https://example.com/", quotes })),
+    ).rejects.toThrow(/at most 10 entries/i)
+  })
+
+  test("rejects unknown keys like Q0, A1 with a clear error", async () => {
+    await expect(
+      inInstance(() => exec({ url: "https://example.com/", quotes: { Q0: "x" } as unknown as Args["quotes"] })),
+    ).rejects.toThrow(/unknown keys/i)
+    await expect(
+      inInstance(() => exec({ url: "https://example.com/", quotes: { A1: "x" } as unknown as Args["quotes"] })),
+    ).rejects.toThrow(/unknown keys/i)
+  })
+
+  test("rejects whitespace-only quote values", async () => {
+    await expect(
+      inInstance(() => exec({ url: "https://example.com/", quotes: { Q1: "   " } as Args["quotes"] })),
+    ).rejects.toThrow(/non-whitespace/i)
+    await expect(
+      inInstance(() => exec({ url: "https://example.com/", quotes: { Q1: "\n\t " } as Args["quotes"] })),
+    ).rejects.toThrow(/non-whitespace/i)
   })
 
   test("rejects non-http(s) URLs", async () => {
