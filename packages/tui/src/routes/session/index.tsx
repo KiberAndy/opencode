@@ -1754,6 +1754,9 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
         <Match when={display() === "webfetch"}>
           <WebFetch {...toolprops} />
         </Match>
+        <Match when={display() === "quote"}>
+          <Quote {...toolprops} />
+        </Match>
         <Match when={display() === "websearch"}>
           <WebSearch {...toolprops} />
         </Match>
@@ -2209,6 +2212,46 @@ function WebFetch(props: ToolProps) {
   )
 }
 
+function Quote(props: ToolProps) {
+  const { theme } = useTheme()
+  const lines = createMemo(() => {
+    const quotes = props.input.quotes
+    const results = props.metadata.results
+    if (!quotes || typeof quotes !== "object") return []
+    const q = quotes as Record<string, string | undefined>
+    const r = results as Record<string, { status: string; reason?: string }> | undefined
+    const QUOTE_KEYS = ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10"]
+    return QUOTE_KEYS.flatMap((key) => {
+      const text = q[key]
+      if (typeof text !== "string" || text.length === 0) return []
+      const safe = text.replace(/\r?\n/g, " ")
+      const result = r?.[key]
+      if (!result || result.status === "approved") return [`| ${safe}`]
+      return [`| ${safe} (rejected: ${result.reason})`]
+    })
+  })
+  const description = createMemo(() => {
+    const s = props.metadata.summary as { approved?: number; total?: number } | undefined
+    const url = stringValue(props.input.url)
+    if (!s) return `[url=${url}]`
+    return `[url=${url}] (${s.approved}/${s.total} approved)`
+  })
+  return (
+    <Switch>
+      <Match when={lines().length > 0}>
+        <BlockTool title={`⚙ quote ${description()}`} part={props.part}>
+          <text fg={theme.text}>{lines().join("\n")}</text>
+        </BlockTool>
+      </Match>
+      <Match when={true}>
+        <InlineTool icon="⚙" pending="Verifying quotes..." complete={stringValue(props.input.url)} part={props.part}>
+          quote {description()}
+        </InlineTool>
+      </Match>
+    </Switch>
+  )
+}
+
 function WebSearch(props: ToolProps) {
   return (
     <InlineTool icon="◈" pending="Searching web..." complete={stringValue(props.input.query)} part={props.part}>
@@ -2641,6 +2684,7 @@ const toolDisplays = new Set([
   "read",
   "grep",
   "webfetch",
+  "quote",
   "websearch",
   "write",
   "edit",

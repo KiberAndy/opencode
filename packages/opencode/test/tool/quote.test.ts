@@ -5,7 +5,15 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "@/tool/truncate"
 import { Instance } from "../../src/project/instance"
-import { QuoteTool, extractTextFromHTML, isBlockedHost, Parameters } from "../../src/tool/quote"
+import {
+  QuoteTool,
+  buildResponse,
+  collectQuotes,
+  extractTextFromHTML,
+  isBlockedHost,
+  Parameters,
+  renderQuoteLines,
+} from "../../src/tool/quote"
 import { SessionID, MessageID } from "../../src/session/schema"
 import type { Tool } from "@/tool/tool"
 
@@ -81,6 +89,92 @@ describe("tool.quote extractTextFromHTML", () => {
   test("decodes common HTML entities including nbsp", () => {
     const out = extractTextFromHTML(`<p>A&nbsp;B &amp; C &#x2014; D &#8212;</p>`)
     expect(out).toBe("A\u00A0B & C \u2014 D \u2014")
+  })
+})
+
+describe("tool.quote buildResponse / collectQuotes", () => {
+  const url = "https://example.com/article"
+
+  test("collectQuotes preserves Q1..Q10 ordering and skips undefined slots", () => {
+    const entries = collectQuotes({ Q3: "third", Q1: "first", Q5: "fifth" })
+    expect(entries).toEqual([
+      ["Q1", "first"],
+      ["Q3", "third"],
+      ["Q5", "fifth"],
+    ])
+  })
+
+  test("buildResponse classifies each entry and reports `all` when every quote is approved", () => {
+    const entries = collectQuotes({ Q1: "alpha", Q2: "beta" })
+    const response = buildResponse(url, entries, "alpha and beta on the page")
+    expect(response.summary).toEqual({ total: 2, approved: 2, rejected: 0, batch_status: "all" })
+    expect(response.results).toEqual({
+      Q1: { status: "approved", match_index: 0 },
+      Q2: { status: "approved", match_index: 10 },
+    })
+  })
+
+  test("buildResponse reports `partial` when some quotes fail and `none` when all fail", () => {
+    const entries = collectQuotes({ Q1: "alpha", Q2: "delta" })
+    const partial = buildResponse(url, entries, "alpha and beta on the page")
+    expect(partial.summary).toEqual({ total: 2, approved: 1, rejected: 1, batch_status: "partial" })
+    expect(partial.results.Q2).toEqual({ status: "rejected", reason: "not_found" })
+
+    const none = buildResponse(url, entries, "unrelated content here")
+    expect(none.summary).toEqual({ total: 2, approved: 0, rejected: 2, batch_status: "none" })
+  })
+})
+
+describe("tool.quote renderQuoteLines", () => {
+  test("renders approved quotes as `| <text>`", () => {
+    const lines = renderQuoteLines({ Q1: "Hello world" }, { Q1: { status: "approved", match_index: 0 } })
+    expect(lines).toEqual(["| Hello world"])
+  })
+
+  test("annotates rejected quotes with the rejection reason", () => {
+    const lines = renderQuoteLines(
+      { Q1: "Hello", Q2: "World" },
+      {
+        Q1: { status: "approved", match_index: 0 },
+        Q2: { status: "rejected", reason: "case_mismatch" },
+      },
+    )
+    expect(lines).toEqual(["| Hello", "| World (rejected: case_mismatch)"])
+  })
+
+  test("preserves Q1..Q10 ordering regardless of input key order", () => {
+    const lines = renderQuoteLines(
+      { Q3: "third", Q1: "first", Q5: "fifth" },
+      {
+        Q1: { status: "approved", match_index: 0 },
+        Q3: { status: "approved", match_index: 5 },
+        Q5: { status: "approved", match_index: 10 },
+      },
+    )
+    expect(lines).toEqual(["| first", "| third", "| fifth"])
+  })
+
+  test("collapses newlines so each quote stays on a single visual line", () => {
+    const lines = renderQuoteLines(
+      { Q1: "first line\nsecond line" },
+      { Q1: { status: "approved", match_index: 0 } },
+    )
+    expect(lines).toEqual(["| first line second line"])
+  })
+
+  test("renders quotes with no available results as approved (pre-completion view)", () => {
+    const lines = renderQuoteLines({ Q1: "alpha", Q2: "beta" }, undefined)
+    expect(lines).toEqual(["| alpha", "| beta"])
+  })
+
+  test("skips empty and missing slots", () => {
+    const lines = renderQuoteLines({ Q1: "alpha", Q2: "", Q3: undefined } as never, undefined)
+    expect(lines).toEqual(["| alpha"])
+  })
+
+  test("returns an empty list when no quotes are provided", () => {
+    expect(renderQuoteLines(undefined, undefined)).toEqual([])
+    expect(renderQuoteLines({}, {})).toEqual([])
   })
 })
 
