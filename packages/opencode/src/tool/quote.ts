@@ -4,25 +4,15 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./quote.txt"
 
 const MAX_RESPONSE_SIZE = 2 * 1024 * 1024 // 2 MiB
-const REQUEST_TIMEOUT = 5 * 1000 // 5 s
+const REQUEST_TIMEOUT = 3 * 1000 // 3 s
 
-const QUOTE_KEYS = ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10"] as const
-type QuoteKey = (typeof QUOTE_KEYS)[number]
+export const QUOTE_KEYS = ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10"] as const
+export type QuoteKey = (typeof QUOTE_KEYS)[number]
+const QUOTE_KEY_SET: ReadonlySet<string> = new Set(QUOTE_KEYS)
 
-const QuoteValue = Schema.NonEmptyString
-
-const QuotesSchema = Schema.Struct({
-  Q1: Schema.optional(QuoteValue),
-  Q2: Schema.optional(QuoteValue),
-  Q3: Schema.optional(QuoteValue),
-  Q4: Schema.optional(QuoteValue),
-  Q5: Schema.optional(QuoteValue),
-  Q6: Schema.optional(QuoteValue),
-  Q7: Schema.optional(QuoteValue),
-  Q8: Schema.optional(QuoteValue),
-  Q9: Schema.optional(QuoteValue),
-  Q10: Schema.optional(QuoteValue),
-})
+// Use Schema.Record so that unknown keys (Q11, A1, etc.) reach `validateQuotesInput`
+// instead of being silently stripped by Schema.Struct's default decoding.
+const QuotesSchema = Schema.Record(Schema.String, Schema.String)
 
 export const Parameters = Schema.Struct({
   url: Schema.String.annotate({
@@ -30,7 +20,7 @@ export const Parameters = Schema.Struct({
   }),
   quotes: QuotesSchema.annotate({
     description:
-      "Object with between 1 and 10 entries keyed Q1..Q10. Each value is a non-empty string that must appear verbatim on the page.",
+      "Object with between 1 and 10 entries. Keys MUST be a subset of Q1, Q2, ..., Q10 (no other keys are allowed). Each value MUST be a non-empty string that contains at least one non-whitespace character and appears verbatim on the page.",
   }),
 })
 
@@ -150,11 +140,44 @@ function matchQuote(page: string, quote: string): QuoteResult {
   return { status: "rejected", reason: "not_found" }
 }
 
-export function collectQuotes(quotes: Schema.Schema.Type<typeof QuotesSchema>): Array<[QuoteKey, string]> {
+export function collectQuotes(quotes: Record<string, string>): Array<[QuoteKey, string]> {
   return QUOTE_KEYS.flatMap((key) => {
     const value = quotes[key]
     return value === undefined ? [] : ([[key, value]] as Array<[QuoteKey, string]>)
   })
+}
+
+/**
+ * Validate the raw `quotes` payload coming from the LLM. Rejects:
+ * - Empty payloads and payloads with more than 10 entries.
+ * - Unknown keys (anything outside Q1..Q10) so Q11/QA1/A1/Q0 surface a clear
+ *   error instead of being silently dropped by the schema decoder.
+ * - Empty-string values and whitespace-only values that would otherwise match
+ *   trivially against any page containing a single space.
+ *
+ * Returns the same `[QuoteKey, string]` entries as `collectQuotes` on success.
+ */
+export function validateQuotesInput(quotes: Record<string, string>): Array<[QuoteKey, string]> {
+  const keys = Object.keys(quotes)
+  if (keys.length === 0) throw new Error("quotes must contain at least 1 entry (Q1..Q10)")
+  if (keys.length > 10) throw new Error(`quotes must contain at most 10 entries (Q1..Q10), got ${keys.length}`)
+
+  const unknown = keys.filter((k) => !QUOTE_KEY_SET.has(k))
+  if (unknown.length > 0) {
+    throw new Error(`quotes object contains unknown keys: ${unknown.join(", ")} (allowed keys are Q1..Q10)`)
+  }
+
+  const empty = keys.filter((k) => quotes[k]!.length === 0)
+  if (empty.length > 0) throw new Error(`quote values must be non-empty strings (offending keys: ${empty.join(", ")})`)
+
+  const blank = keys.filter((k) => quotes[k]!.trim().length === 0)
+  if (blank.length > 0) {
+    throw new Error(
+      `quote values must contain at least one non-whitespace character (offending keys: ${blank.join(", ")})`,
+    )
+  }
+
+  return collectQuotes(quotes)
 }
 
 export function buildResponse(url: string, entries: Array<[QuoteKey, string]>, pageText: string): QuoteResponse {
@@ -174,7 +197,7 @@ export function buildResponse(url: string, entries: Array<[QuoteKey, string]>, p
  * collapsed so each quote stays on a single visual line.
  */
 export function renderQuoteLines(
-  quotes: Partial<Record<QuoteKey, string>> | undefined,
+  quotes: Record<string, string | undefined> | undefined,
   results: Record<string, QuoteResult> | undefined,
 ): string[] {
   if (!quotes) return []
@@ -199,10 +222,7 @@ export const QuoteTool = Tool.define(
       parameters: Parameters,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
-          const entries = collectQuotes(params.quotes)
-          if (entries.length < 1 || entries.length > 10) {
-            throw new Error("quotes must contain between 1 and 10 entries (Q1..Q10)")
-          }
+          const entries = validateQuotesInput(params.quotes)
 
           const parsed = yield* Effect.try({
             try: () => new URL(params.url),

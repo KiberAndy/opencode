@@ -16,14 +16,20 @@ Input JSON shape:
 }
 
 Rules:
-- `url` must start with `http://` or `https://`. Private, loopback and
+- `url` MUST start with `http://` or `https://`. Private, loopback and
   link-local hosts are rejected (SSRF protection).
-- `quotes` is an object with keys `Q1`..`Q10`. Provide between 1 and 10
-  entries. Values must be non-empty strings.
+- `quotes` MUST be an object with between 1 and 10 entries.
+- Keys MUST be drawn from `Q1`, `Q2`, ..., `Q10` ONLY. Any other key (`Q0`,
+  `Q11`, `A1`, etc.) causes the call to fail with a clear error - extra keys
+  are NEVER silently ignored. Use sequential keys starting at `Q1`.
+- Values MUST be non-empty strings that contain at least one non-whitespace
+  character. Whitespace-only values (`""`, `"   "`, `"\n\t"`) are rejected.
 - Each quote is compared as a literal substring of the extracted page text.
   Any difference - even a single whitespace, letter case, punctuation,
   invisible character (BOM, NBSP) or typo - causes the quote to be rejected.
 - The tool NEVER normalizes, fuzzes, or corrects the text it compares.
+- The tool gives up on the network request after 3 seconds; non-existent or
+  unreachable hosts fail fast.
 - An approved quote is returned with its `match_index` (0-based offset into
   the page text). A rejected quote is returned with a reason:
     - `not_found`           - no close match on the page
