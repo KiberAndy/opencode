@@ -3,8 +3,7 @@ import path from "path"
 import fs from "fs/promises"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { CopyTool } from "../../src/tool/copy"
-import { Instance } from "../../src/project/instance"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, disposeAllInstances, provideInstance } from "../fixture/fixture"
 import { LSP } from "../../src/lsp/lsp"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Format } from "../../src/format"
@@ -41,7 +40,7 @@ const ctx = {
 }
 
 afterEach(async () => {
-  await Instance.disposeAll()
+  await disposeAllInstances()
 })
 
 const runtime = ManagedRuntime.make(
@@ -71,7 +70,7 @@ const resolve = () =>
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Run copy.execute inside an Instance.provide context. Returns { result, content }. */
+/** Run copy.execute inside an Instance context. Returns { result, content }. */
 async function runCopy(
   tmp: { path: string },
   params: CopyParams,
@@ -79,19 +78,20 @@ async function runCopy(
   let result!: { output: string; metadata: unknown; title: string }
   let content: string | undefined
 
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const copy = await resolve()
-      result = await Effect.runPromise(copy.execute(params, ctx) as any)
-      if (params.destFile) {
-        const abs = path.isAbsolute(params.destFile)
-          ? params.destFile
-          : path.join(tmp.path, params.destFile)
-        content = await fs.readFile(abs, "utf-8")
-      }
-    },
-  })
+  await Effect.runPromise(
+    provideInstance(tmp.path)(
+      Effect.promise(async () => {
+        const copy = await resolve()
+        result = await Effect.runPromise(copy.execute(params, ctx) as any)
+        if (params.destFile) {
+          const abs = path.isAbsolute(params.destFile)
+            ? params.destFile
+            : path.join(tmp.path, params.destFile)
+          content = await fs.readFile(abs, "utf-8")
+        }
+      }),
+    ),
+  )
 
   return { result: result!, content: content! }
 }
@@ -483,27 +483,28 @@ describe("tool.copy", () => {
       await fs.writeFile(src, "A\nB")
       await fs.writeFile(dst, "anchor")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          const task = Effect.runPromise(
-            copy.execute(
-              {
-                sourceFile: src,
-                sourceLineStart: 1,
-                sourceLineEnd: 999,
-                destFile: dst,
-                destAnchor: "anchor",
-                insert: "after",
-              },
-              ctx,
-            ),
-          )
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            const task = Effect.runPromise(
+              copy.execute(
+                {
+                  sourceFile: src,
+                  sourceLineStart: 1,
+                  sourceLineEnd: 999,
+                  destFile: dst,
+                  destAnchor: "anchor",
+                  insert: "after",
+                },
+                ctx,
+              ),
+            )
 
-          await expect(task).rejects.toThrow(/lineEnd|range|bounds/i)
-        },
-      })
+            await expect(task).rejects.toThrow(/lineEnd|range|bounds/i)
+          }),
+        ),
+      )
     })
 
     test("reversed range (start > end) throws descriptive error", async () => {
@@ -514,27 +515,28 @@ describe("tool.copy", () => {
       await fs.writeFile(src, "A\nB\nC")
       await fs.writeFile(dst, "anchor")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          await expect(
-            Effect.runPromise(
-              copy.execute(
-                {
-                  sourceFile: src,
-                  sourceLineStart: 3,
-                  sourceLineEnd: 1,
-                  destFile: dst,
-                  destAnchor: "anchor",
-                  insert: "before",
-                },
-                ctx,
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            await expect(
+              Effect.runPromise(
+                copy.execute(
+                  {
+                    sourceFile: src,
+                    sourceLineStart: 3,
+                    sourceLineEnd: 1,
+                    destFile: dst,
+                    destAnchor: "anchor",
+                    insert: "before",
+                  },
+                  ctx,
+                ),
               ),
-            ),
-          ).rejects.toThrow()
-        },
-      })
+            ).rejects.toThrow()
+          }),
+        ),
+      )
     })
   })
 
@@ -547,26 +549,27 @@ describe("tool.copy", () => {
       const dst = path.join(tmp.path, "dest.ts")
       await fs.writeFile(dst, "content")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          await expect(
-            Effect.runPromise(
-              copy.execute(
-                {
-                  sourceFile: path.join(tmp.path, "nonexistent.ts"),
-                  sourceString: "something",
-                  destFile: dst,
-                  destAnchor: "content",
-                  insert: "before",
-                },
-                ctx,
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            await expect(
+              Effect.runPromise(
+                copy.execute(
+                  {
+                    sourceFile: path.join(tmp.path, "nonexistent.ts"),
+                    sourceString: "something",
+                    destFile: dst,
+                    destAnchor: "content",
+                    insert: "before",
+                  },
+                  ctx,
+                ),
               ),
-            ),
-          ).rejects.toThrow("Source file not found")
-        },
-      })
+            ).rejects.toThrow("Source file not found")
+          }),
+        ),
+      )
     })
 
     test("dest anchor not found", async () => {
@@ -577,26 +580,27 @@ describe("tool.copy", () => {
       await fs.writeFile(src, "content")
       await fs.writeFile(dst, "original content")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          await expect(
-            Effect.runPromise(
-              copy.execute(
-                {
-                  sourceFile: src,
-                  sourceString: "content",
-                  destFile: dst,
-                  destAnchor: "nonexistent anchor",
-                  insert: "before",
-                },
-                ctx,
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            await expect(
+              Effect.runPromise(
+                copy.execute(
+                  {
+                    sourceFile: src,
+                    sourceString: "content",
+                    destFile: dst,
+                    destAnchor: "nonexistent anchor",
+                    insert: "before",
+                  },
+                  ctx,
+                ),
               ),
-            ),
-          ).rejects.toThrow("Could not find destAnchor")
-        },
-      })
+            ).rejects.toThrow("Could not find destAnchor")
+          }),
+        ),
+      )
     })
 
     test("source string not found in source file", async () => {
@@ -607,26 +611,27 @@ describe("tool.copy", () => {
       await fs.writeFile(src, "some content here")
       await fs.writeFile(dst, "target content")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          await expect(
-            Effect.runPromise(
-              copy.execute(
-                {
-                  sourceFile: src,
-                  sourceString: "nonexistent string",
-                  destFile: dst,
-                  destAnchor: "target content",
-                  insert: "before",
-                },
-                ctx,
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            await expect(
+              Effect.runPromise(
+                copy.execute(
+                  {
+                    sourceFile: src,
+                    sourceString: "nonexistent string",
+                    destFile: dst,
+                    destAnchor: "target content",
+                    insert: "before",
+                  },
+                  ctx,
+                ),
               ),
-            ),
-          ).rejects.toThrow("Could not find source content")
-        },
-      })
+            ).rejects.toThrow("Could not find source content")
+          }),
+        ),
+      )
     })
 
     test("dest file not found throws", async () => {
@@ -635,26 +640,27 @@ describe("tool.copy", () => {
 
       await fs.writeFile(src, "content")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          await expect(
-            Effect.runPromise(
-              copy.execute(
-                {
-                  sourceFile: src,
-                  sourceString: "content",
-                  destFile: path.join(tmp.path, "nonexistent_dest.ts"),
-                  destAnchor: "anchor",
-                  insert: "before",
-                },
-                ctx,
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            await expect(
+              Effect.runPromise(
+                copy.execute(
+                  {
+                    sourceFile: src,
+                    sourceString: "content",
+                    destFile: path.join(tmp.path, "nonexistent_dest.ts"),
+                    destAnchor: "anchor",
+                    insert: "before",
+                  },
+                  ctx,
+                ),
               ),
-            ),
-          ).rejects.toThrow()
-        },
-      })
+            ).rejects.toThrow()
+          }),
+        ),
+      )
     })
 
     test("empty source file throws", async () => {
@@ -665,26 +671,27 @@ describe("tool.copy", () => {
       await fs.writeFile(src, "")
       await fs.writeFile(dst, "anchor")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          await expect(
-            Effect.runPromise(
-              copy.execute(
-                {
-                  sourceFile: src,
-                  sourceString: "anything",
-                  destFile: dst,
-                  destAnchor: "anchor",
-                  insert: "before",
-                },
-                ctx,
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            await expect(
+              Effect.runPromise(
+                copy.execute(
+                  {
+                    sourceFile: src,
+                    sourceString: "anything",
+                    destFile: dst,
+                    destAnchor: "anchor",
+                    insert: "before",
+                  },
+                  ctx,
+                ),
               ),
-            ),
-          ).rejects.toThrow()
-        },
-      })
+            ).rejects.toThrow()
+          }),
+        ),
+      )
     })
 
     test("empty dest file throws on anchor not found", async () => {
@@ -695,26 +702,27 @@ describe("tool.copy", () => {
       await fs.writeFile(src, "content")
       await fs.writeFile(dst, "")
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          await expect(
-            Effect.runPromise(
-              copy.execute(
-                {
-                  sourceFile: src,
-                  sourceString: "content",
-                  destFile: dst,
-                  destAnchor: "missing",
-                  insert: "before",
-                },
-                ctx,
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            await expect(
+              Effect.runPromise(
+                copy.execute(
+                  {
+                    sourceFile: src,
+                    sourceString: "content",
+                    destFile: dst,
+                    destAnchor: "missing",
+                    insert: "before",
+                  },
+                  ctx,
+                ),
               ),
-            ),
-          ).rejects.toThrow()
-        },
-      })
+            ).rejects.toThrow()
+          }),
+        ),
+      )
     })
 
     test("error does NOT mutate dest file", async () => {
@@ -726,29 +734,30 @@ describe("tool.copy", () => {
       await fs.writeFile(src, "something")
       await fs.writeFile(dst, originalContent)
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
-          const task = Effect.runPromise(
-            copy.execute(
-              {
-                sourceFile: src,
-                sourceString: "something",
-                destFile: dst,
-                destAnchor: "ANCHOR_THAT_DOES_NOT_EXIST",
-                insert: "replace",
-              },
-              ctx,
-            ),
-          )
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
+            const task = Effect.runPromise(
+              copy.execute(
+                {
+                  sourceFile: src,
+                  sourceString: "something",
+                  destFile: dst,
+                  destAnchor: "ANCHOR_THAT_DOES_NOT_EXIST",
+                  insert: "replace",
+                },
+                ctx,
+              ),
+            )
 
-          await expect(task).rejects.toThrow(/Could not find destAnchor/i)
+            await expect(task).rejects.toThrow(/Could not find destAnchor/i)
 
-          const content = await fs.readFile(dst, "utf-8")
-          expect(content).toBe(originalContent)
-        },
-      })
+            const content = await fs.readFile(dst, "utf-8")
+            expect(content).toBe(originalContent)
+          }),
+        ),
+      )
     })
   })
 
@@ -1079,38 +1088,39 @@ describe("tool.copy", () => {
         }),
       )
 
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const copy = await resolve()
+      await Effect.runPromise(
+        provideInstance(tmp.path)(
+          Effect.promise(async () => {
+            const copy = await resolve()
 
-          await Promise.all(
-            files.map(({ src, dst, i }) =>
-              Effect.runPromise(
-                copy.execute(
-                  {
-                    sourceFile: src,
-                    sourceString: `SRC_${i}`,
-                    destFile: dst,
-                    destAnchor: `anchor_${i}`,
-                    insert: "after",
-                  },
-                  ctx,
+            await Promise.all(
+              files.map(({ src, dst, i }) =>
+                Effect.runPromise(
+                  copy.execute(
+                    {
+                      sourceFile: src,
+                      sourceString: `SRC_${i}`,
+                      destFile: dst,
+                      destAnchor: `anchor_${i}`,
+                      insert: "after",
+                    },
+                    ctx,
+                  ),
                 ),
               ),
-            ),
-          )
+            )
 
-          for (const { dst, i } of files) {
-            const content = await fs.readFile(dst, "utf-8")
-            expect(content).toContain(`SRC_${i}`)
-            // Must NOT contain content from other slots
-            for (let j = 0; j < 5; j++) {
-              if (j !== i) expect(content).not.toContain(`SRC_${j}`)
+            for (const { dst, i } of files) {
+              const content = await fs.readFile(dst, "utf-8")
+              expect(content).toContain(`SRC_${i}`)
+              // Must NOT contain content from other slots
+              for (let j = 0; j < 5; j++) {
+                if (j !== i) expect(content).not.toContain(`SRC_${j}`)
+              }
             }
-          }
-        },
-      })
+          }),
+        ),
+      )
     })
   })
 
