@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "@/tool/truncate"
-import { Instance } from "../../src/project/instance"
+import { provideInstance } from "../fixture/fixture"
 import {
   QuoteTool,
   buildResponse,
@@ -60,7 +60,11 @@ function exec(args: Args) {
 }
 
 function inInstance<T>(fn: () => Promise<T>) {
-  return Instance.provide({ directory: projectRoot, fn })
+  return Effect.runPromise(
+    provideInstance(projectRoot)(
+      Effect.promise(fn)
+    )
+  )
 }
 
 function html(body: string) {
