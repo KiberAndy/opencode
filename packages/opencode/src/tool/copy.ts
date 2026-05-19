@@ -9,7 +9,7 @@ import { FileWatcher } from "../file/watcher"
 import { Format } from "../format"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import * as path from "path"
-import { Instance } from "../project/instance"
+import { InstanceState } from "@/effect/instance-state"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 
@@ -300,10 +300,10 @@ function validateParameters(
 // Path resolution
 // ─────────────────────────────────────────────
 
-function resolvePath(filePath: string): string {
+function resolvePath(filePath: string, directory: string): string {
   return path.isAbsolute(filePath)
     ? filePath
-    : path.join(Instance.directory, filePath)
+    : path.join(directory, filePath)
 }
 
 // ─────────────────────────────────────────────
@@ -326,12 +326,14 @@ export const CopyTool = Tool.define(
       parameters: Parameters,
       execute: (params: Parameters, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const instance = yield* InstanceState.context
+
           // ── 1. Validate ─────────────────────────────────────────
           yield* validateParameters(params)
 
           // ── 2. Resolve paths ────────────────────────────────────
-          const sourceFile = resolvePath(params.sourceFile)
-          const destFile = resolvePath(params.destFile)
+          const sourceFile = resolvePath(params.sourceFile, instance.directory)
+          const destFile = resolvePath(params.destFile, instance.directory)
 
           yield* assertExternalDirectoryEffect(ctx, sourceFile)
           yield* assertExternalDirectoryEffect(ctx, destFile)
@@ -465,8 +467,8 @@ export const CopyTool = Tool.define(
             ),
           )
 
-          const sourceRelative = path.relative(Instance.worktree, sourceFile)
-          const destRelative = path.relative(Instance.worktree, destFile)
+          const sourceRelative = path.relative(instance.worktree, sourceFile)
+          const destRelative = path.relative(instance.worktree, destFile)
 
           // ── 12. Request permission ──────────────────────────────
           yield* ctx.ask({

@@ -5,6 +5,7 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "@/tool/truncate"
 import { provideInstance } from "../fixture/fixture"
+import { InstanceRef } from "../../src/effect/instance-ref"
 import {
   QuoteTool,
   buildResponse,
@@ -34,7 +35,7 @@ afterAll(() => {
 
 const ctx = {
   sessionID: SessionID.make("ses_test-quote"),
-  messageID: MessageID.make(""),
+  messageID: MessageID.make("msg_test"),
   callID: "",
   agent: "build",
   abort: AbortSignal.any([]),
@@ -54,15 +55,20 @@ function exec(args: Args) {
   return QuoteTool.pipe(
     Effect.flatMap((info) => info.init()),
     Effect.flatMap((tool) => tool.execute(args, ctx as Tool.Context)),
-    Effect.provide(Layer.mergeAll(FetchHttpClient.layer, Truncate.defaultLayer, Agent.defaultLayer)),
-    Effect.runPromise,
+    Effect.provide(
+      Layer.mergeAll(
+        FetchHttpClient.layer,
+        Truncate.defaultLayer,
+        Agent.defaultLayer,
+      ),
+    ),
   )
 }
 
-function inInstance<T>(fn: () => Promise<T>) {
+function execInInstance(args: Args) {
   return Effect.runPromise(
     provideInstance(projectRoot)(
-      Effect.promise(fn)
+      exec(args)
     )
   )
 }
@@ -234,18 +240,16 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>Привет, мир!</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/article", url).toString(),
-            quotes: { Q1: "Привет, мир!" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.summary).toEqual({ total: 1, approved: 1, rejected: 0, batch_status: "all" })
-          expect(data.results.Q1.status).toBe("approved")
-          expect(typeof data.results.Q1.match_index).toBe("number")
-          expect(data.results.Q1.match_index).toBeGreaterThanOrEqual(0)
-          expect(result.title).toContain("1/1 approved")
+        const result = await execInInstance({
+          url: new URL("/article", url).toString(),
+          quotes: { Q1: "Привет, мир!" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.summary).toEqual({ total: 1, approved: 1, rejected: 0, batch_status: "all" })
+        expect(data.results.Q1.status).toBe("approved")
+        expect(typeof data.results.Q1.match_index).toBe("number")
+        expect(data.results.Q1.match_index).toBeGreaterThanOrEqual(0)
+        expect(result.title).toContain("1/1 approved")
       },
     )
   })
@@ -255,17 +259,15 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html(`<article>${fragments.map((f) => `<p>${f}</p>`).join("")}</article>`)),
       async (url) => {
-        await inInstance(async () => {
-          const quotes = Object.fromEntries(fragments.map((f, i) => [`Q${i + 1}`, f])) as Args["quotes"]
-          const result = await exec({ url: new URL("/all", url).toString(), quotes })
-          const data = JSON.parse(result.output)
-          expect(data.summary.total).toBe(10)
-          expect(data.summary.approved).toBe(10)
-          expect(data.summary.batch_status).toBe("all")
-          for (let i = 1; i <= 10; i++) {
-            expect(data.results[`Q${i}`].status).toBe("approved")
-          }
-        })
+        const quotes = Object.fromEntries(fragments.map((f, i) => [`Q${i + 1}`, f])) as Args["quotes"]
+        const result = await execInInstance({ url: new URL("/all", url).toString(), quotes })
+        const data = JSON.parse(result.output)
+        expect(data.summary.total).toBe(10)
+        expect(data.summary.approved).toBe(10)
+        expect(data.summary.batch_status).toBe("all")
+        for (let i = 1; i <= 10; i++) {
+          expect(data.results[`Q${i}`].status).toBe("approved")
+        }
       },
     )
   })
@@ -274,16 +276,14 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>alpha</p><p>beta</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/mixed", url).toString(),
-            quotes: { Q1: "alpha", Q2: "GAMMA" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.summary).toEqual({ total: 2, approved: 1, rejected: 1, batch_status: "partial" })
-          expect(data.results.Q1.status).toBe("approved")
-          expect(data.results.Q2.status).toBe("rejected")
+        const result = await execInInstance({
+          url: new URL("/mixed", url).toString(),
+          quotes: { Q1: "alpha", Q2: "GAMMA" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.summary).toEqual({ total: 2, approved: 1, rejected: 1, batch_status: "partial" })
+        expect(data.results.Q1.status).toBe("approved")
+        expect(data.results.Q2.status).toBe("rejected")
       },
     )
   })
@@ -292,15 +292,13 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>Привет, мир!</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/char", url).toString(),
-            quotes: { Q1: "Привет, мир." },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "character_mismatch" })
-          expect(data.summary.batch_status).toBe("none")
+        const result = await execInInstance({
+          url: new URL("/char", url).toString(),
+          quotes: { Q1: "Привет, мир." },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "character_mismatch" })
+        expect(data.summary.batch_status).toBe("none")
       },
     )
   })
@@ -309,18 +307,16 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>Опечатка: првиет</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/typo", url).toString(),
-            quotes: {
-              Q1: "Опечатка: привет", // the AI corrected the site's typo
-              Q2: "Опечатка: првиет", // exact copy of the typo
-            },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "character_mismatch" })
-          expect(data.results.Q2.status).toBe("approved")
+        const result = await execInInstance({
+          url: new URL("/typo", url).toString(),
+          quotes: {
+            Q1: "Опечатка: привет",
+            Q2: "Опечатка: првиет",
+          },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "character_mismatch" })
+        expect(data.results.Q2.status).toBe("approved")
       },
     )
   })
@@ -329,14 +325,12 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>Тест  с  двумя  пробелами</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/ws", url).toString(),
-            quotes: { Q1: "Тест с двумя пробелами" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "whitespace_mismatch" })
+        const result = await execInInstance({
+          url: new URL("/ws", url).toString(),
+          quotes: { Q1: "Тест с двумя пробелами" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "whitespace_mismatch" })
       },
     )
   })
@@ -345,14 +339,12 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse("<p>Hello\nWorld</p>"),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/nl", url).toString(),
-            quotes: { Q1: "Hello World" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "whitespace_mismatch" })
+        const result = await execInInstance({
+          url: new URL("/nl", url).toString(),
+          quotes: { Q1: "Hello World" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "whitespace_mismatch" })
       },
     )
   })
@@ -361,14 +353,12 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>Hello World</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/case", url).toString(),
-            quotes: { Q1: "hello world" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "case_mismatch" })
+        const result = await execInInstance({
+          url: new URL("/case", url).toString(),
+          quotes: { Q1: "hello world" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "case_mismatch" })
       },
     )
   })
@@ -377,14 +367,12 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>Foo&nbsp;Bar</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/nbsp", url).toString(),
-            quotes: { Q1: "Foo Bar" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "encoding_mismatch" })
+        const result = await execInInstance({
+          url: new URL("/nbsp", url).toString(),
+          quotes: { Q1: "Foo Bar" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "encoding_mismatch" })
       },
     )
   })
@@ -393,14 +381,12 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>Foo&nbsp;Bar</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/nbsp-exact", url).toString(),
-            quotes: { Q1: "Foo\u00A0Bar" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1.status).toBe("approved")
+        const result = await execInInstance({
+          url: new URL("/nbsp-exact", url).toString(),
+          quotes: { Q1: "Foo\u00A0Bar" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1.status).toBe("approved")
       },
     )
   })
@@ -409,14 +395,12 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html("<p>some unrelated content</p>")),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/missing", url).toString(),
-            quotes: { Q1: "XYZABC-never-appears" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "not_found" })
+        const result = await execInInstance({
+          url: new URL("/missing", url).toString(),
+          quotes: { Q1: "XYZABC-never-appears" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "not_found" })
       },
     )
   })
@@ -428,18 +412,16 @@ describe("tool.quote execute", () => {
           `<!doctype html><html><head><style>.x{}</style><script>const SECRET = "hidden in js"</script></head><body><p>visible body</p></body></html>`,
         ),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/hidden", url).toString(),
-            quotes: {
-              Q1: "hidden in js",
-              Q2: "visible body",
-            },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1).toEqual({ status: "rejected", reason: "not_found" })
-          expect(data.results.Q2.status).toBe("approved")
+        const result = await execInInstance({
+          url: new URL("/hidden", url).toString(),
+          quotes: {
+            Q1: "hidden in js",
+            Q2: "visible body",
+          },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1).toEqual({ status: "rejected", reason: "not_found" })
+        expect(data.results.Q2.status).toBe("approved")
       },
     )
   })
@@ -452,61 +434,59 @@ describe("tool.quote execute", () => {
           headers: { "content-type": "text/plain; charset=utf-8" },
         }),
       async (url) => {
-        await inInstance(async () => {
-          const result = await exec({
-            url: new URL("/plain.txt", url).toString(),
-            quotes: { Q1: "raw plain text body" },
-          })
-          const data = JSON.parse(result.output)
-          expect(data.results.Q1.status).toBe("approved")
+        const result = await execInInstance({
+          url: new URL("/plain.txt", url).toString(),
+          quotes: { Q1: "raw plain text body" },
         })
+        const data = JSON.parse(result.output)
+        expect(data.results.Q1.status).toBe("approved")
       },
     )
   })
 
   test("rejects zero quotes via the schema", async () => {
     await expect(
-      inInstance(() => exec({ url: "https://example.com/", quotes: {} as Args["quotes"] })),
+      execInInstance({ url: "https://example.com/", quotes: {} as Args["quotes"] }),
     ).rejects.toBeDefined()
   })
 
   test("rejects empty-string quote values via the schema", async () => {
     await expect(
-      inInstance(() => exec({ url: "https://example.com/", quotes: { Q1: "" } as Args["quotes"] })),
+      execInInstance({ url: "https://example.com/", quotes: { Q1: "" } as Args["quotes"] }),
     ).rejects.toBeDefined()
   })
 
   test("rejects more than 10 quotes (no silent truncation of Q11+)", async () => {
     const quotes = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`Q${i + 1}`, `frag-${i + 1}`])) as Args["quotes"]
     await expect(
-      inInstance(() => exec({ url: "https://example.com/", quotes })),
+      execInInstance({ url: "https://example.com/", quotes }),
     ).rejects.toThrow(/at most 10 entries/i)
   })
 
   test("rejects unknown keys like Q0, A1 with a clear error", async () => {
     await expect(
-      inInstance(() => exec({ url: "https://example.com/", quotes: { Q0: "x" } as unknown as Args["quotes"] })),
+      execInInstance({ url: "https://example.com/", quotes: { Q0: "x" } as unknown as Args["quotes"] }),
     ).rejects.toThrow(/unknown keys/i)
     await expect(
-      inInstance(() => exec({ url: "https://example.com/", quotes: { A1: "x" } as unknown as Args["quotes"] })),
+      execInInstance({ url: "https://example.com/", quotes: { A1: "x" } as unknown as Args["quotes"] }),
     ).rejects.toThrow(/unknown keys/i)
   })
 
   test("rejects whitespace-only quote values", async () => {
     await expect(
-      inInstance(() => exec({ url: "https://example.com/", quotes: { Q1: "   " } as Args["quotes"] })),
+      execInInstance({ url: "https://example.com/", quotes: { Q1: "   " } as Args["quotes"] }),
     ).rejects.toThrow(/non-whitespace/i)
     await expect(
-      inInstance(() => exec({ url: "https://example.com/", quotes: { Q1: "\n\t " } as Args["quotes"] })),
+      execInInstance({ url: "https://example.com/", quotes: { Q1: "\n\t " } as Args["quotes"] }),
     ).rejects.toThrow(/non-whitespace/i)
   })
 
   test("rejects non-http(s) URLs", async () => {
     await expect(
-      inInstance(() => exec({ url: "file:///etc/passwd", quotes: { Q1: "root" } })),
+      execInInstance({ url: "file:///etc/passwd", quotes: { Q1: "root" } }),
     ).rejects.toBeDefined()
     await expect(
-      inInstance(() => exec({ url: "data:text/plain,hello", quotes: { Q1: "hello" } })),
+      execInInstance({ url: "data:text/plain,hello", quotes: { Q1: "hello" } }),
     ).rejects.toBeDefined()
   })
 
@@ -536,13 +516,13 @@ describe("tool.quote execute", () => {
     delete process.env[PRIVATE_HOSTS_ENV]
     try {
       await expect(
-        inInstance(() => exec({ url: "http://localhost:8080/", quotes: { Q1: "x" } })),
+        execInInstance({ url: "http://localhost:8080/", quotes: { Q1: "x" } }),
       ).rejects.toBeDefined()
       await expect(
-        inInstance(() => exec({ url: "http://10.0.0.1/", quotes: { Q1: "x" } })),
+        execInInstance({ url: "http://10.0.0.1/", quotes: { Q1: "x" } }),
       ).rejects.toBeDefined()
       await expect(
-        inInstance(() => exec({ url: "http://169.254.169.254/", quotes: { Q1: "x" } })),
+        execInInstance({ url: "http://169.254.169.254/", quotes: { Q1: "x" } }),
       ).rejects.toBeDefined()
     } finally {
       process.env[PRIVATE_HOSTS_ENV] = "1"
@@ -554,11 +534,9 @@ describe("tool.quote execute", () => {
     await withFetch(
       () => htmlResponse(html(`<p>${large}</p>`)),
       async (url) => {
-        await inInstance(async () => {
-          await expect(
-            exec({ url: new URL("/big", url).toString(), quotes: { Q1: "AAAA" } }),
-          ).rejects.toBeDefined()
-        })
+        await expect(
+          execInInstance({ url: new URL("/big", url).toString(), quotes: { Q1: "AAAA" } }),
+        ).rejects.toBeDefined()
       },
     )
   })
