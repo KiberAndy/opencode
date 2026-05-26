@@ -5,6 +5,7 @@ import { Session } from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
 import { Provider } from "@/provider/provider"
 import { MessageV2 } from "./message-v2"
+import { ContextGC } from "./context-gc"
 import { Token } from "@/util/token"
 import { SessionProcessor } from "./processor"
 import { Agent } from "@/agent/agent"
@@ -280,6 +281,36 @@ const layer = Layer.effect(
         .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed(undefined)))
       if (!msgs) return
 
+      // Pass 1: content-aware GC. Deterministic and cheap — runs every prune
+      // regardless of token budget. Marks superseded reads, reads invalidated
+      // by later edits, etc. as `compacted` so the model render strips them.
+      // Defaults to enabled; opt-out via `compaction.smart_gc = false` or the
+      // `OPENCODE_DISABLE_SMART_GC` env flag.
+      if (cfg.compaction?.smart_gc !== false) {
+        const evicted = ContextGC.selectEvictions(msgs, cfg.compaction?.gc_rules ?? {})
+        if (evicted.size > 0) {
+          let smartCount = 0
+          for (const msg of msgs) {
+            for (const part of msg.parts) {
+              if (part.type !== "tool") continue
+              if (!evicted.has(part.callID)) continue
+              if (part.state.status !== "completed") continue
+              if (part.state.time.compacted) continue
+              if (PRUNE_PROTECTED_TOOLS.includes(part.tool)) continue
+              part.state.time.compacted = Date.now()
+              yield* session.updatePart(part)
+              smartCount++
+            }
+          }
+          if (smartCount > 0) log.info("smart_gc.evicted", { count: smartCount })
+        }
+      }
+
+      // Pass 2: FIFO token-budget prune. Catches the long tail that the
+      // content-aware pass did not classify (e.g. unique reads that simply
+      // grew old). Reads the same message list — content-aware evictions
+      // above already mutated `state.time.compacted` on the in-memory parts,
+      // which causes the protective `break loop` below to fire correctly.
       let total = 0
       let pruned = 0
       const toPrune: SessionV1.ToolPart[] = []
