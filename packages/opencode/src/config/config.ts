@@ -108,7 +108,20 @@ async function resolveLoadedPlugins<T extends { plugin?: ConfigPluginV1.Spec[] }
   return config
 }
 
-type Info = ConfigV1.Info & {
+type Compaction = NonNullable<ConfigV1.Info["compaction"]> & {
+  smart_gc?: boolean
+  gc_rules?: {
+    dedupe_reads?: boolean
+    evict_on_modify?: boolean
+    dedupe_shell?: boolean
+    dedupe_grep?: boolean
+    dedupe_glob?: boolean
+    dedupe_webfetch?: boolean
+  }
+}
+
+type Info = Omit<ConfigV1.Info, "compaction"> & {
+  compaction?: Compaction
   // plugin_origins is derived state, not a persisted config field. It keeps each winning plugin spec together
   // with the file and scope it came from so later runtime code can make location-sensitive decisions.
   plugin_origins?: ConfigPlugin.Origin[]
@@ -581,6 +594,9 @@ const layer = Layer.effect(
         }
         if (Flag.OPENCODE_DISABLE_PRUNE) {
           result.compaction = { ...result.compaction, prune: false }
+        }
+        if (Flag.OPENCODE_DISABLE_SMART_GC) {
+          result.compaction = { ...result.compaction, smart_gc: false }
         }
 
         return {
