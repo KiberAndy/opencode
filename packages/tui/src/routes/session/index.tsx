@@ -280,6 +280,29 @@ export function Session() {
   const providers = createMemo(() => Model.index(sync.data.provider))
 
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
+
+  let middleDragActive = false
+  let middleDragAnchorY = 0
+  let middleDragAnchorScroll = 0
+
+  const onScrollMiddleDown = (e: { type: string; button: number; preventDefault: () => void; y: number }) => {
+    if (e.type !== "down" || e.button !== 1 || !scroll) return
+    e.preventDefault()
+    middleDragActive = true
+    middleDragAnchorY = e.y
+    middleDragAnchorScroll = scroll.scrollTop
+  }
+
+  const onScrollMiddleDrag = (e: { type: string; button: number; y: number }) => {
+    if (!middleDragActive || e.button !== 1 || !scroll) return
+    const deltaY = e.y - middleDragAnchorY
+    const speed = Math.sign(deltaY) * Math.min(Math.abs(deltaY) / 2, 30)
+    scroll.scrollTop = middleDragAnchorScroll + speed
+  }
+
+  const onScrollMiddleUp = (e: { type: string; button: number }) => {
+    if (e.type === "up" && e.button === 1) middleDragActive = false
+  }
   const toast = useToast()
   const sdk = useSDK()
   const editor = useEditorContext()
@@ -1195,6 +1218,9 @@ export function Session() {
                 stickyStart="bottom"
                 flexGrow={1}
                 scrollAcceleration={scrollAcceleration()}
+                onMouseDown={onScrollMiddleDown}
+                onMouseDrag={onScrollMiddleDrag}
+                onMouseUp={onScrollMiddleUp}
               >
                 <box height={1} />
                 <For each={messages()}>
