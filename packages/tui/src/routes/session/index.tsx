@@ -281,27 +281,6 @@ export function Session() {
 
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
 
-  let autoscrollActive = false
-  let autoscrollAnchorY = 0
-  let autoscrollAnchorScroll = 0
-
-  const onScrollMiddleDown = (e: { type: string; button: number; preventDefault: () => void; y: number }) => {
-    if (e.type !== "down" || e.button !== 1 || !scroll) return
-    e.preventDefault()
-    if (autoscrollActive) {
-      autoscrollActive = false
-      return
-    }
-    autoscrollActive = true
-    autoscrollAnchorY = e.y
-    autoscrollAnchorScroll = scroll.scrollTop
-  }
-
-  const onScrollMouseMove = (e: { type: string; button: number; y: number }) => {
-    if (!autoscrollActive || !scroll) return
-    const deltaY = e.y - autoscrollAnchorY
-    scroll.scrollTop = autoscrollAnchorScroll + deltaY * 1.5
-  }
   const toast = useToast()
   const sdk = useSDK()
   const editor = useEditorContext()
@@ -376,6 +355,35 @@ export function Session() {
   const keymap = useOpencodeKeymap()
   const dialog = useDialog()
   const renderer = useRenderer()
+
+  let autoscrollActive = false
+  let autoscrollAnchorY = 0
+  let autoscrollAnchorScroll = 0
+
+  const setAutoscrollIndicators = (on: boolean) => {
+    renderer.setMousePointer(on ? "move" : "default")
+    toast.show({ message: on ? "Autoscroll on" : "Autoscroll off", variant: "info", duration: 1500 })
+  }
+
+  const onScrollMiddleDown = (e: { type: string; button: number; preventDefault: () => void; y: number }) => {
+    if (e.type !== "down" || e.button !== 1 || !scroll) return
+    e.preventDefault()
+    if (autoscrollActive) {
+      autoscrollActive = false
+      setAutoscrollIndicators(false)
+      return
+    }
+    autoscrollActive = true
+    autoscrollAnchorY = e.y
+    autoscrollAnchorScroll = scroll.scrollTop
+    setAutoscrollIndicators(true)
+  }
+
+  const onScrollMouseMove = (e: { type: string; y: number }) => {
+    if (!autoscrollActive || !scroll) return
+    const deltaY = e.y - autoscrollAnchorY
+    scroll.scrollTop = autoscrollAnchorScroll + deltaY * 1.5
+  }
 
   event.on("session.status", (evt) => {
     if (evt.properties.sessionID !== route.sessionID) return
