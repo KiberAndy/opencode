@@ -356,14 +356,17 @@ export function Session() {
   const dialog = useDialog()
   const renderer = useRenderer()
 
-  let autoscrollActive = false
+  const [autoscrollActive, setAutoscrollActive] = createSignal(false)
+  const [autoscrollDirection, setAutoscrollDirection] = createSignal<"none" | "up" | "down">("none")
   let autoscrollAnchorY = 0
+  let autoscrollAnchorScroll = 0
   let currentMouseY = 0
   let autoscrollInterval: ReturnType<typeof setInterval> | null = null
 
   const stopAutoscroll = () => {
-    if (!autoscrollActive) return
-    autoscrollActive = false
+    if (!autoscrollActive()) return
+    setAutoscrollActive(false)
+    setAutoscrollDirection("none")
     if (autoscrollInterval) {
       clearInterval(autoscrollInterval)
       autoscrollInterval = null
@@ -374,8 +377,10 @@ export function Session() {
   }
 
   const startAutoscroll = (startY: number) => {
-    autoscrollActive = true
+    setAutoscrollActive(true)
+    setAutoscrollDirection("none")
     autoscrollAnchorY = startY
+    autoscrollAnchorScroll = scroll.scrollTop
     currentMouseY = startY
 
     renderer.setMousePointer("move")
@@ -383,20 +388,30 @@ export function Session() {
     toast.show({ message: "Autoscroll on", variant: "info", duration: 1500 })
 
     autoscrollInterval = setInterval(() => {
-      if (!scroll || !autoscrollActive) return
+      if (!autoscrollActive() || !scroll) return
       const deltaY = currentMouseY - autoscrollAnchorY
-      if (Math.abs(deltaY) <= 1) return
-      const raw = Math.sign(deltaY) * Math.pow(Math.abs(deltaY) - 0.5, 1.3) * 0.4
-      const speed = Math.sign(raw) * Math.min(Math.abs(raw), 12)
-      scroll.scrollTop += speed
+
+      let target = autoscrollAnchorScroll
+      if (Math.abs(deltaY) > 1) {
+        const raw = Math.sign(deltaY) * Math.pow(Math.abs(deltaY) - 0.5, 1.3) * 0.4
+        const speed = Math.sign(raw) * Math.min(Math.abs(raw), 12)
+        target = autoscrollAnchorScroll + speed
+        setAutoscrollDirection(deltaY > 0 ? "down" : "up")
+      } else {
+        setAutoscrollDirection("none")
+      }
+
+      const diff = target - scroll.scrollTop
+      if (Math.abs(diff) < 0.1) return
+      scroll.scrollTop += diff * 0.4
       renderer.requestRender()
-    }, 40)
+    }, 16)
   }
 
   const onScrollMiddleDown = (e: { type: string; button: number; preventDefault: () => void; y: number }) => {
     if (e.type !== "down" || e.button !== 1 || !scroll) return
     e.preventDefault()
-    if (autoscrollActive) {
+    if (autoscrollActive()) {
       stopAutoscroll()
     } else {
       startAutoscroll(e.y)
@@ -404,7 +419,7 @@ export function Session() {
   }
 
   const onScrollMouseMove = (e: { type: string; y: number }) => {
-    if (!autoscrollActive) return
+    if (!autoscrollActive()) return
     currentMouseY = e.y
   }
 
@@ -1235,26 +1250,27 @@ export function Session() {
         <box flexDirection="row" flexGrow={1} minHeight={0}>
           <box flexGrow={1} minHeight={0} paddingBottom={1} paddingLeft={2} paddingRight={2} gap={1}>
             <Show when={session()}>
-              <scrollbox
-                ref={(r) => (scroll = r)}
-                viewportOptions={{
-                  paddingRight: showScrollbar() ? 1 : 0,
-                }}
-                verticalScrollbarOptions={{
-                  paddingLeft: 1,
-                  visible: showScrollbar(),
-                  trackOptions: {
-                    backgroundColor: theme.backgroundElement,
-                    foregroundColor: theme.border,
-                  },
-                }}
-                stickyScroll={true}
-                stickyStart="bottom"
-                flexGrow={1}
-                scrollAcceleration={scrollAcceleration()}
-                onMouseDown={onScrollMiddleDown}
-                onMouseMove={onScrollMouseMove}
-              >
+              <box flexGrow={1} minHeight={0} position="relative">
+                <scrollbox
+                  ref={(r) => (scroll = r)}
+                  viewportOptions={{
+                    paddingRight: showScrollbar() ? 1 : 0,
+                  }}
+                  verticalScrollbarOptions={{
+                    paddingLeft: 1,
+                    visible: showScrollbar(),
+                    trackOptions: {
+                      backgroundColor: theme.backgroundElement,
+                      foregroundColor: theme.border,
+                    },
+                  }}
+                  stickyScroll={true}
+                  stickyStart="bottom"
+                  flexGrow={1}
+                  scrollAcceleration={scrollAcceleration()}
+                  onMouseDown={onScrollMiddleDown}
+                  onMouseMove={onScrollMouseMove}
+                >
                 <box height={1} />
                 <For each={messages()}>
                   {(message, index) => (
@@ -1353,6 +1369,23 @@ export function Session() {
                   )}
                 </For>
               </scrollbox>
+                <Show when={autoscrollActive()}>
+                  <box
+                    position="absolute"
+                    top={0}
+                    right={0}
+                    backgroundColor={theme.backgroundPanel}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    zIndex={10}
+                  >
+                    <text fg={theme.text}>
+                      ● AUTOSCROLL{" "}
+                      {autoscrollDirection() === "down" ? "↓" : autoscrollDirection() === "up" ? "↑" : ""}
+                    </text>
+                  </box>
+                </Show>
+              </box>
               <box flexShrink={0}>
                 <Show when={permissions().length > 0}>
                   <PermissionPrompt
