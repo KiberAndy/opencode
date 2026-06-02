@@ -358,32 +358,59 @@ export function Session() {
 
   let autoscrollActive = false
   let autoscrollAnchorY = 0
-  let autoscrollAnchorScroll = 0
+  let currentMouseY = 0
+  let autoscrollInterval: ReturnType<typeof setInterval> | null = null
 
-  const setAutoscrollIndicators = (on: boolean) => {
-    renderer.setMousePointer(on ? "move" : "default")
-    toast.show({ message: on ? "Autoscroll on" : "Autoscroll off", variant: "info", duration: 1500 })
+  const stopAutoscroll = () => {
+    if (!autoscrollActive) return
+    autoscrollActive = false
+    if (autoscrollInterval) {
+      clearInterval(autoscrollInterval)
+      autoscrollInterval = null
+    }
+    renderer.setMousePointer("default")
+    renderer.requestRender()
+    toast.show({ message: "Autoscroll off", variant: "info", duration: 1500 })
+  }
+
+  const startAutoscroll = (startY: number) => {
+    autoscrollActive = true
+    autoscrollAnchorY = startY
+    currentMouseY = startY
+
+    renderer.setMousePointer("move")
+    renderer.requestRender()
+    toast.show({ message: "Autoscroll on", variant: "info", duration: 1500 })
+
+    autoscrollInterval = setInterval(() => {
+      if (!scroll || !autoscrollActive) return
+      const deltaY = currentMouseY - autoscrollAnchorY
+      if (Math.abs(deltaY) <= 1) return
+      const raw = Math.sign(deltaY) * Math.pow(Math.abs(deltaY) - 0.5, 1.3) * 0.4
+      const speed = Math.sign(raw) * Math.min(Math.abs(raw), 12)
+      scroll.scrollTop += speed
+      renderer.requestRender()
+    }, 40)
   }
 
   const onScrollMiddleDown = (e: { type: string; button: number; preventDefault: () => void; y: number }) => {
     if (e.type !== "down" || e.button !== 1 || !scroll) return
     e.preventDefault()
     if (autoscrollActive) {
-      autoscrollActive = false
-      setAutoscrollIndicators(false)
-      return
+      stopAutoscroll()
+    } else {
+      startAutoscroll(e.y)
     }
-    autoscrollActive = true
-    autoscrollAnchorY = e.y
-    autoscrollAnchorScroll = scroll.scrollTop
-    setAutoscrollIndicators(true)
   }
 
   const onScrollMouseMove = (e: { type: string; y: number }) => {
-    if (!autoscrollActive || !scroll) return
-    const deltaY = e.y - autoscrollAnchorY
-    scroll.scrollTop = autoscrollAnchorScroll + deltaY * 1.5
+    if (!autoscrollActive) return
+    currentMouseY = e.y
   }
+
+  onCleanup(() => {
+    if (autoscrollInterval) clearInterval(autoscrollInterval)
+  })
 
   event.on("session.status", (evt) => {
     if (evt.properties.sessionID !== route.sessionID) return
