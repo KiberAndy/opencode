@@ -75,6 +75,10 @@ import { useTuiConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
 import { nextThinkingMode, reasoningSummary, useThinkingMode, type ThinkingMode } from "../../context/thinking"
 import { getScrollAcceleration } from "../../util/scroll"
+import {
+  autoscrollDirection as autoscrollDirectionFor,
+  autoscrollSpeed,
+} from "../../util/scroll-autoscroll"
 import { collapseToolOutput } from "../../util/collapse-tool-output"
 import { usePluginRuntime } from "../../plugin/runtime"
 import { DialogRetryAction } from "../../component/dialog-retry-action"
@@ -391,16 +395,14 @@ export function Session() {
       if (!autoscrollActive() || !scroll) return
       const deltaY = currentMouseY - autoscrollAnchorY
 
-      if (Math.abs(deltaY) <= 1) {
+      const speed = autoscrollSpeed(deltaY)
+      if (speed === 0) {
         setAutoscrollDirection("none")
         return
       }
 
-      const raw = Math.sign(deltaY) * Math.pow(Math.abs(deltaY), 1.3) * 0.4
-      const speed = Math.sign(raw) * Math.min(Math.abs(raw), 4)
       scroll.scrollTop += speed
-
-      setAutoscrollDirection(deltaY > 0 ? "down" : "up")
+      setAutoscrollDirection(autoscrollDirectionFor(deltaY))
       renderer.requestRender()
     }, 16)
   }
