@@ -391,19 +391,16 @@ export function Session() {
       if (!autoscrollActive() || !scroll) return
       const deltaY = currentMouseY - autoscrollAnchorY
 
-      let target = autoscrollAnchorScroll
-      if (Math.abs(deltaY) > 1) {
-        const raw = Math.sign(deltaY) * Math.pow(Math.abs(deltaY) - 0.5, 1.3) * 0.4
-        const speed = Math.sign(raw) * Math.min(Math.abs(raw), 12)
-        target = autoscrollAnchorScroll + speed
-        setAutoscrollDirection(deltaY > 0 ? "down" : "up")
-      } else {
+      if (Math.abs(deltaY) <= 1) {
         setAutoscrollDirection("none")
+        return
       }
 
-      const diff = target - scroll.scrollTop
-      if (Math.abs(diff) < 0.1) return
-      scroll.scrollTop += diff * 0.4
+      const raw = Math.sign(deltaY) * Math.pow(Math.abs(deltaY), 1.3) * 0.4
+      const speed = Math.sign(raw) * Math.min(Math.abs(raw), 4)
+      scroll.scrollTop += speed
+
+      setAutoscrollDirection(deltaY > 0 ? "down" : "up")
       renderer.requestRender()
     }, 16)
   }
