@@ -1011,7 +1011,7 @@ function mcpRegistrationKey(name: string, config: ReturnType<typeof mcpConfig>) 
 }
 
 function mcpConfig(server: McpServer) {
-  if ("type" in server) {
+  if ("url" in server) {
     return {
       type: "remote" as const,
       url: server.url,

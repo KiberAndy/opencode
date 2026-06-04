@@ -337,6 +337,95 @@ const layer = Layer.effect(
       }
     })
 
+    const connectHttp = Effect.fn("MCP.connectHttp")(function* (
+      key: string,
+      mcp: ConfigMCPV1.Info & { type: "http" },
+    ) {
+      const oauthDisabled = mcp.oauth === false
+      const oauthConfig = typeof mcp.oauth === "object" ? mcp.oauth : undefined
+      const url = remoteURL(mcp.url)
+      if (!url) {
+        return {
+          client: undefined as MCPClient | undefined,
+          status: { status: "failed" as const, error: `Invalid MCP URL for "${key}"` },
+        }
+      }
+      let authProvider: McpOAuthProvider | undefined
+
+      if (!oauthDisabled) {
+        authProvider = new McpOAuthProvider(
+          key,
+          mcp.url,
+          {
+            clientId: oauthConfig?.clientId,
+            clientSecret: oauthConfig?.clientSecret,
+            scope: oauthConfig?.scope,
+            callbackPort: oauthConfig?.callbackPort,
+            redirectUri: oauthConfig?.redirectUri,
+          },
+          {
+            onRedirect: async () => {},
+          },
+          auth,
+        )
+      }
+
+      const transport = new StreamableHTTPClientTransport(url, {
+        authProvider,
+        requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
+      })
+
+      const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
+      let lastStatus: Status | undefined
+
+      const result = yield* connectTransport(transport, connectTimeout).pipe(
+        Effect.map((client) => ({ client, transportName: "StreamableHTTP" })),
+        Effect.catch((error) => {
+          const lastError = error instanceof Error ? error : new Error(String(error))
+          const isAuthError =
+            error instanceof UnauthorizedError || (authProvider && lastError.message.includes("OAuth"))
+
+          if (isAuthError) {
+            if (lastError.message.includes("registration") || lastError.message.includes("client_id")) {
+              lastStatus = {
+                status: "needs_client_registration" as const,
+                error: "Server does not support dynamic client registration. Please provide clientId in config.",
+              }
+              return events
+                .publish(TuiEvent.ToastShow, {
+                  title: "MCP Authentication Required",
+                  message: `Server "${key}" requires a pre-registered client ID. Add clientId to your config.`,
+                  variant: "warning",
+                  duration: 8000,
+                })
+                .pipe(Effect.ignore, Effect.as(undefined))
+            } else {
+              pendingOAuthTransports.set(key, { transport })
+              lastStatus = { status: "needs_auth" as const }
+              return events
+                .publish(TuiEvent.ToastShow, {
+                  title: "MCP Authentication Required",
+                  message: `Server "${key}" requires authentication. Run: opencode mcp auth ${key}`,
+                  variant: "warning",
+                  duration: 8000,
+                })
+                .pipe(Effect.ignore, Effect.as(undefined))
+            }
+          }
+
+          lastStatus = { status: "failed" as const, error: lastError.message }
+          return Effect.void
+        }),
+      )
+
+      if (result) return { client: result.client, status: { status: "connected" } as Status }
+
+      return {
+        client: undefined as MCPClient | undefined,
+        status: (lastStatus ?? { status: "failed", error: "Unknown error" }) as Status,
+      }
+    })
+
     const connectLocal = Effect.fn("MCP.connectLocal")(function* (
       key: string,
       mcp: ConfigMCPV1.Info & { type: "local" },
@@ -369,23 +458,24 @@ const layer = Layer.effect(
       )
     })
 
-    const create = Effect.fn("MCP.create")(
-      function* (key: string, mcp: ConfigMCPV1.Info) {
-        if (mcp.enabled === false) {
-          return DISABLED_RESULT
-        }
+    const create = Effect.fn("MCP.create")(function* (key: string, mcp: ConfigMCPV1.Info) {
+      if (mcp.enabled === false) {
+        return DISABLED_RESULT
+      }
 
-        const { client: mcpClient, status } =
-          mcp.type === "remote"
-            ? yield* connectRemote(key, mcp as ConfigMCPV1.Info & { type: "remote" })
+      const { client: mcpClient, status } =
+        mcp.type === "remote"
+          ? yield* connectRemote(key, mcp as ConfigMCPV1.Info & { type: "remote" })
+          : mcp.type === "http"
+            ? yield* connectHttp(key, mcp as ConfigMCPV1.Info & { type: "http" })
             : yield* connectLocal(key, mcp as ConfigMCPV1.Info & { type: "local" })
 
-        if (!mcpClient) {
-          if (status.status !== "connected" && status.status !== "disabled") {
-            yield* Effect.logWarning("server unavailable", { key, type: mcp.type, status: status.status })
-          }
-          return { status } satisfies CreateResult
+      if (!mcpClient) {
+        if (status.status !== "connected" && status.status !== "disabled") {
+          yield* Effect.logWarning("server unavailable", { key, type: mcp.type, status: status.status })
         }
+        return { status } satisfies CreateResult
+      }
 
         return yield* Effect.gen(function* () {
           const listed = mcpClient.getServerCapabilities()?.tools ? yield* McpCatalog.defs(mcpClient, mcp.timeout) : []
@@ -805,7 +895,7 @@ const layer = Layer.effect(
 
     const startAuth = Effect.fn("MCP.startAuth")(function* (mcpName: string) {
       const mcpConfig = yield* requireMcpConfig(mcpName)
-      if (mcpConfig.type !== "remote") throw new Error(`MCP server ${mcpName} is not a remote server`)
+      if (mcpConfig.type !== "remote" && mcpConfig.type !== "http") throw new Error(`MCP server ${mcpName} is not a remote server`)
       if (mcpConfig.oauth === false) throw new Error(`MCP server ${mcpName} has OAuth explicitly disabled`)
       const url = remoteURL(mcpConfig.url)
       if (!url) throw new Error(`Invalid MCP URL for "${mcpName}"`)
@@ -949,7 +1039,7 @@ const layer = Layer.effect(
 
     const supportsOAuth = Effect.fn("MCP.supportsOAuth")(function* (mcpName: string) {
       const mcpConfig = yield* requireMcpConfig(mcpName)
-      return mcpConfig.type === "remote" && mcpConfig.oauth !== false
+      return (mcpConfig.type === "remote" || mcpConfig.type === "http") && mcpConfig.oauth !== false
     })
 
     const hasStoredTokens = Effect.fn("MCP.hasStoredTokens")(function* (mcpName: string) {
