@@ -51,8 +51,14 @@ function isMcpConfigured(config: McpEntry): config is McpConfigured {
 }
 
 type McpRemote = Extract<McpConfigured, { type: "remote" }>
+type McpHttp = Extract<McpConfigured, { type: "http" }>
+
 function isMcpRemote(config: McpEntry): config is McpRemote {
   return isMcpConfigured(config) && config.type === "remote"
+}
+
+function isMcpHttp(config: McpEntry): config is McpHttp {
+  return isMcpConfigured(config) && config.type === "http"
 }
 
 function configuredServers(config: ConfigV1.Info) {
@@ -61,7 +67,8 @@ function configuredServers(config: ConfigV1.Info) {
 
 function oauthServers(config: ConfigV1.Info) {
   return configuredServers(config).filter(
-    (entry): entry is [string, McpRemote] => isMcpRemote(entry[1]) && entry[1].oauth !== false,
+    (entry): entry is [string, McpRemote | McpHttp] =>
+      (isMcpRemote(entry[1]) || isMcpHttp(entry[1])) && entry[1].oauth !== false,
   )
 }
 
@@ -157,7 +164,7 @@ export const McpListCommand = effectCmd({
         hint = "\n    " + status.error
       }
 
-      const typeHint = serverConfig.type === "remote" ? serverConfig.url : serverConfig.command.join(" ")
+      const typeHint = serverConfig.type === "local" ? serverConfig.command.join(" ") : serverConfig.url
       prompts.log.info(
         `${statusIcon} ${name} ${UI.Style.TEXT_DIM}${statusText}${hint}\n    ${UI.Style.TEXT_DIM}${typeHint}`,
       )

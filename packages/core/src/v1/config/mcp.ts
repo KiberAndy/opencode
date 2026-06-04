@@ -42,7 +42,7 @@ export const OAuth = Schema.Struct({
 export type OAuth = Schema.Schema.Type<typeof OAuth>
 
 export const Remote = Schema.Struct({
-  type: Schema.Literal("remote").annotate({ description: "Type of MCP server connection" }),
+  type: Schema.Literal("remote").annotate({ description: "Type of MCP server connection (SSE transport)" }),
   url: Schema.String.annotate({ description: "URL of the remote MCP server" }),
   enabled: Schema.optional(Schema.Boolean).annotate({
     description: "Enable or disable the MCP server on startup",
@@ -59,5 +59,23 @@ export const Remote = Schema.Struct({
 }).annotate({ identifier: "McpRemoteConfig" })
 export type Remote = Schema.Schema.Type<typeof Remote>
 
-export const Info = Schema.Union([Local, Remote]).annotate({ discriminator: "type" })
+export const Http = Schema.Struct({
+  type: Schema.Literal("http").annotate({ description: "Type of MCP server connection (Streamable HTTP transport)" }),
+  url: Schema.String.annotate({ description: "URL of the remote MCP server" }),
+  enabled: Schema.optional(Schema.Boolean).annotate({
+    description: "Enable or disable the MCP server on startup",
+  }),
+  headers: Schema.optional(Schema.Record(Schema.String, Schema.String)).annotate({
+    description: "Headers to send with the request",
+  }),
+  oauth: Schema.optional(Schema.Union([OAuth, Schema.Literal(false)])).annotate({
+    description: "OAuth authentication configuration for the MCP server. Set to false to disable OAuth auto-detection.",
+  }),
+  timeout: Schema.optional(PositiveInt).annotate({
+    description: "Timeout in ms for MCP server requests. Defaults to 5000 (5 seconds) if not specified.",
+  }),
+}).annotate({ identifier: "McpHttpConfig" })
+export type Http = Schema.Schema.Type<typeof Http>
+
+export const Info = Schema.Union([Local, Remote, Http]).annotate({ discriminator: "type" })
 export type Info = Schema.Schema.Type<typeof Info>

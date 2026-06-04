@@ -40,7 +40,16 @@ export class Remote extends Schema.Class<Remote>("ConfigV2.MCP.Remote")({
   timeout: Timeout.pipe(Schema.optional),
 }) {}
 
-export const Server = Schema.Union([Local, Remote]).pipe(Schema.toTaggedUnion("type"))
+export class Http extends Schema.Class<Http>("ConfigV2.MCP.Http")({
+  type: Schema.Literal("http"),
+  url: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String).pipe(Schema.optional),
+  oauth: Schema.Union([OAuth, Schema.Literal(false)]).pipe(Schema.optional),
+  disabled: Schema.Boolean.pipe(Schema.optional),
+  timeout: PositiveInt.pipe(Schema.optional),
+}) {}
+
+export const Server = Schema.Union([Local, Remote, Http]).pipe(Schema.toTaggedUnion("type"))
 
 export class Info extends Schema.Class<Info>("ConfigV2.MCP")({
   timeout: Timeout.pipe(Schema.optional),
