@@ -3,14 +3,15 @@ import path from "path"
 import fs from "fs/promises"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { CopyTool } from "../../src/tool/copy"
-import { tmpdir, disposeAllInstances, provideInstance } from "../fixture/fixture"
+import { tmpdir, disposeAllInstances, provideInstance, testInstanceStoreLayer } from "../fixture/fixture"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { LSP } from "../../src/lsp/lsp"
-import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Format } from "../../src/format"
 import { Agent } from "../../src/agent/agent"
-import { Bus } from "../../src/bus"
+import { EventV2Bridge } from "@/event-v2-bridge"
 import { Truncate } from "../../src/tool/truncate"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { SessionID, MessageID } from "../../src/session/schema"
 import type * as Copy from "../../src/tool/copy"
 
@@ -47,9 +48,9 @@ afterEach(async () => {
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(
     LSP.defaultLayer,
-    AppFileSystem.defaultLayer,
+    FSUtil.defaultLayer,
     Format.defaultLayer,
-    Bus.layer,
+    EventV2Bridge.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
   ),
@@ -58,6 +59,19 @@ const runtime = ManagedRuntime.make(
 afterAll(async () => {
   await runtime.dispose()
 })
+
+const storeLayer = Layer.mergeAll(
+  testInstanceStoreLayer,
+  CrossSpawnSpawner.defaultLayer,
+)
+
+function runInInstance<A>(dir: string, effect: Effect.Effect<A, never, never>) {
+  return Effect.runPromise(
+    provideInstance(dir)(effect).pipe(
+      Effect.provide(storeLayer),
+    ),
+  )
+}
 
 /** Execute copy inside an Instance context. Returns the execute result. */
 function runCopyEffect(dir: string, params: CopyParams) {
@@ -69,9 +83,9 @@ function runCopyEffect(dir: string, params: CopyParams) {
     Effect.provide(
       Layer.mergeAll(
         LSP.defaultLayer,
-        AppFileSystem.defaultLayer,
+        FSUtil.defaultLayer,
         Format.defaultLayer,
-        Bus.layer,
+        EventV2Bridge.defaultLayer,
         Truncate.defaultLayer,
         Agent.defaultLayer,
       ),
@@ -88,30 +102,29 @@ async function runCopy(
   tmp: { path: string },
   params: CopyParams,
 ) {
-  return Effect.runPromise(
-    provideInstance(tmp.path)(
-      Effect.gen(function* () {
-        const info = yield* CopyTool
-        const copy = yield* info.init()
-        const result = yield* copy.execute(params, ctx as any)
-        if (params.destFile) {
-          const abs = path.isAbsolute(params.destFile)
-            ? params.destFile
-            : path.join(tmp.path, params.destFile)
-          const content = yield* Effect.promise(() => fs.readFile(abs, "utf-8"))
-          return { result, content }
-        }
-        return { result, content: "" as const }
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            LSP.defaultLayer,
-            AppFileSystem.defaultLayer,
-            Format.defaultLayer,
-            Bus.layer,
-            Truncate.defaultLayer,
-            Agent.defaultLayer,
-          ),
+  return runInInstance(
+    tmp.path,
+    Effect.gen(function* () {
+      const info = yield* CopyTool
+      const copy = yield* info.init()
+      const result = yield* copy.execute(params, ctx as any)
+      if (params.destFile) {
+        const abs = path.isAbsolute(params.destFile)
+          ? params.destFile
+          : path.join(tmp.path, params.destFile)
+        const content = yield* Effect.promise(() => fs.readFile(abs, "utf-8"))
+        return { result, content }
+      }
+      return { result, content: "" as const }
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          LSP.defaultLayer,
+          FSUtil.defaultLayer,
+          Format.defaultLayer,
+          EventV2Bridge.defaultLayer,
+          Truncate.defaultLayer,
+          Agent.defaultLayer,
         ),
       ),
     ),
@@ -506,17 +519,16 @@ describe("tool.copy", () => {
       await fs.writeFile(dst, "anchor")
 
       await expect(
-        Effect.runPromise(
-          provideInstance(tmp.path)(
-            runCopyEffect(tmp.path, {
-              sourceFile: src,
-              sourceLineStart: 1,
-              sourceLineEnd: 999,
-              destFile: dst,
-              destAnchor: "anchor",
-              insert: "after",
-            }),
-          ),
+        runInInstance(
+          tmp.path,
+          runCopyEffect(tmp.path, {
+            sourceFile: src,
+            sourceLineStart: 1,
+            sourceLineEnd: 999,
+            destFile: dst,
+            destAnchor: "anchor",
+            insert: "after",
+          }),
         ),
       ).rejects.toThrow(/lineEnd|range|bounds/i)
     })
@@ -540,7 +552,7 @@ describe("tool.copy", () => {
               destAnchor: "anchor",
               insert: "before",
             }),
-          ),
+          ).pipe(Effect.provide(storeLayer)),
         ),
       ).rejects.toThrow()
     })
@@ -556,17 +568,16 @@ describe("tool.copy", () => {
       await fs.writeFile(dst, "content")
 
       await expect(
-        Effect.runPromise(
-          provideInstance(tmp.path)(
-            runCopyEffect(tmp.path, {
-              sourceFile: path.join(tmp.path, "nonexistent.ts"),
+        runInInstance(
+          tmp.path,
+          runCopyEffect(tmp.path, {
+            sourceFile: path.join(tmp.path, "nonexistent.ts"),
               sourceString: "something",
               destFile: dst,
               destAnchor: "content",
               insert: "before",
             }),
           ),
-        ),
       ).rejects.toThrow("Source file not found")
     })
 
@@ -588,7 +599,7 @@ describe("tool.copy", () => {
               destAnchor: "nonexistent anchor",
               insert: "before",
             }),
-          ),
+          ).pipe(Effect.provide(storeLayer)),
         ),
       ).rejects.toThrow("Could not find destAnchor")
     })
@@ -611,7 +622,7 @@ describe("tool.copy", () => {
               destAnchor: "target content",
               insert: "before",
             }),
-          ),
+          ).pipe(Effect.provide(storeLayer)),
         ),
       ).rejects.toThrow("Could not find source content")
     })
@@ -632,7 +643,7 @@ describe("tool.copy", () => {
               destAnchor: "anchor",
               insert: "before",
             }),
-          ),
+          ).pipe(Effect.provide(storeLayer)),
         ),
       ).rejects.toThrow()
     })
@@ -655,7 +666,7 @@ describe("tool.copy", () => {
               destAnchor: "anchor",
               insert: "before",
             }),
-          ),
+          ).pipe(Effect.provide(storeLayer)),
         ),
       ).rejects.toThrow()
     })
@@ -678,7 +689,7 @@ describe("tool.copy", () => {
               destAnchor: "missing",
               insert: "before",
             }),
-          ),
+          ).pipe(Effect.provide(storeLayer)),
         ),
       ).rejects.toThrow()
     })
@@ -702,7 +713,7 @@ describe("tool.copy", () => {
               destAnchor: "ANCHOR_THAT_DOES_NOT_EXIST",
               insert: "replace",
             }),
-          ),
+          ).pipe(Effect.provide(storeLayer)),
         ),
       ).rejects.toThrow(/Could not find destAnchor/i)
 
@@ -1049,7 +1060,7 @@ describe("tool.copy", () => {
                 destAnchor: `anchor_${i}`,
                 insert: "after",
               }),
-            ),
+            ).pipe(Effect.provide(storeLayer)),
           ),
         ),
       )

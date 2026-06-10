@@ -1,35 +1,31 @@
 import { afterEach, describe, expect, mock, test } from "bun:test"
 import { Effect, Layer } from "effect"
-import * as Log from "@opencode-ai/core/util/log"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { Bus } from "../../src/bus"
 import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { Plugin } from "../../src/plugin"
 import { SessionCompaction } from "../../src/session/compaction"
 import { ContextGC } from "../../src/session/context-gc"
 import { Session as SessionNs } from "@/session/session"
-import { MessageV2 } from "../../src/session/message-v2"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import { ModelID, ProviderID } from "../../src/provider/schema"
 import type { Provider } from "@/provider/provider"
 import * as SessionProcessorModule from "../../src/session/processor"
 import { ProviderTest } from "../fake/provider"
-import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
-
-void Log.init({ print: false })
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
 
 afterEach(() => {
   mock.restore()
 })
 
 const ref = {
-  providerID: ProviderID.make("test"),
-  modelID: ModelID.make("test-model"),
+  providerID: ProviderV2.ID.make("test"),
+  modelID: ModelV2.ID.make("test-model"),
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +37,7 @@ const nextCallID = () => `call-${++toolCallSeq}`
 
 const FAKE_SESSION_ID = SessionID.make("ses_test_synthetic")
 
-function syntheticAssistant(id: number, parts: MessageV2.Part[]): MessageV2.WithParts {
+function syntheticAssistant(id: number, parts: SessionV1.Part[]): SessionV1.WithParts {
   return {
     info: {
       id: MessageID.make(`msg_a_${id}`),
@@ -57,7 +53,7 @@ function syntheticAssistant(id: number, parts: MessageV2.Part[]): MessageV2.With
       parentID: MessageID.make(`msg_u_${id}`),
       time: { created: id * 1000 },
       finish: "end_turn",
-    } as MessageV2.Assistant,
+    } as SessionV1.Assistant,
     parts,
   }
 }
@@ -70,7 +66,7 @@ function syntheticTool(input: {
   output?: string
   metadata?: Record<string, unknown>
   compacted?: number
-}): MessageV2.ToolPart {
+}): SessionV1.ToolPart {
   return {
     id: PartID.make(`prt_${input.id.replace(/-/g, "_")}`),
     messageID: MessageID.make(input.msg),
@@ -433,9 +429,9 @@ describe("ContextGC.selectEvictions / protections", () => {
           agent: "build",
           model: ref,
           time: { created: 1000 },
-        } as MessageV2.User,
+        } as SessionV1.User,
         parts: [],
-      } satisfies MessageV2.WithParts,
+      } satisfies SessionV1.WithParts,
     ]
     expect(ContextGC.selectEvictions(messages, {}).size).toBe(0)
   })
@@ -566,9 +562,7 @@ const deps = Layer.mergeAll(
   fakeProcessor(),
   Agent.defaultLayer,
   Plugin.defaultLayer,
-  Bus.layer,
   Config.defaultLayer,
-  SyncEvent.defaultLayer,
   RuntimeFlags.layer({ experimentalEventSystem: true }),
   EventV2Bridge.defaultLayer,
 )
@@ -576,8 +570,12 @@ const deps = Layer.mergeAll(
 const env = Layer.mergeAll(
   SessionNs.defaultLayer,
   CrossSpawnSpawner.defaultLayer,
-  SessionCompaction.layer.pipe(Layer.provide(SessionNs.defaultLayer), Layer.provideMerge(deps)),
-)
+  SessionCompaction.layer.pipe(
+    Layer.provide(SessionNs.defaultLayer),
+    Layer.provideMerge(deps),
+    Layer.provide(CrossSpawnSpawner.defaultLayer),
+  ),
+) as Layer.Layer<any, any, never>
 
 const it = testEffect(env)
 
@@ -606,7 +604,7 @@ function makeUser(sessionID: SessionID, text: string) {
 function makeAssistant(sessionID: SessionID, parentID: MessageID, dir: string) {
   return Effect.gen(function* () {
     const ssn = yield* SessionNs.Service
-    const msg: MessageV2.Assistant = {
+    const msg: SessionV1.Assistant = {
       id: MessageID.ascending(),
       role: "assistant",
       sessionID,
@@ -681,7 +679,7 @@ describe("session.compaction.prune / smart GC integration", () => {
           const msgs = yield* ssn.messages({ sessionID: info.id })
           const parts = msgs
             .flatMap((m) => m.parts)
-            .filter((p): p is MessageV2.ToolPart => p.type === "tool")
+            .filter((p): p is SessionV1.ToolPart => p.type === "tool")
 
           const older = parts.find((p) => p.id === olderRead.id)
           const newer = parts.find((p) => p.id === newerRead.id)
@@ -696,7 +694,7 @@ describe("session.compaction.prune / smart GC integration", () => {
         }),
       {
         config: {
-          compaction: { prune: true, smart_gc: true },
+          compaction: { prune: true, smart_gc: true } as any,
         },
       },
     ),
@@ -735,7 +733,7 @@ describe("session.compaction.prune / smart GC integration", () => {
           const msgs = yield* ssn.messages({ sessionID: info.id })
           const parts = msgs
             .flatMap((m) => m.parts)
-            .filter((p): p is MessageV2.ToolPart => p.type === "tool")
+            .filter((p): p is SessionV1.ToolPart => p.type === "tool")
 
           const first = parts.find((p) => p.id === r1.id)
           const second = parts.find((p) => p.id === r2.id)
@@ -752,7 +750,7 @@ describe("session.compaction.prune / smart GC integration", () => {
         }),
       {
         config: {
-          compaction: { prune: true, smart_gc: true },
+          compaction: { prune: true, smart_gc: true } as any,
         },
       },
     ),
@@ -786,7 +784,7 @@ describe("session.compaction.prune / smart GC integration", () => {
           const msgs = yield* ssn.messages({ sessionID: info.id })
           const earlier = msgs
             .flatMap((m) => m.parts)
-            .filter((p): p is MessageV2.ToolPart => p.type === "tool")
+            .filter((p): p is SessionV1.ToolPart => p.type === "tool")
             .find((p) => p.id === r1.id)
           if (earlier?.state.status === "completed") {
             expect(earlier.state.time.compacted).toBeUndefined()
@@ -794,7 +792,7 @@ describe("session.compaction.prune / smart GC integration", () => {
         }),
       {
         config: {
-          compaction: { prune: true, smart_gc: false },
+          compaction: { prune: true, smart_gc: false } as any,
         },
       },
     ),
@@ -828,7 +826,7 @@ describe("session.compaction.prune / smart GC integration", () => {
           const msgs = yield* ssn.messages({ sessionID: info.id })
           const parts = msgs
             .flatMap((m) => m.parts)
-            .filter((p): p is MessageV2.ToolPart => p.type === "tool")
+            .filter((p): p is SessionV1.ToolPart => p.type === "tool")
           for (const id of [skillA.id, skillB.id]) {
             const part = parts.find((p) => p.id === id)
             if (part?.state.status === "completed") {
@@ -838,7 +836,7 @@ describe("session.compaction.prune / smart GC integration", () => {
         }),
       {
         config: {
-          compaction: { prune: true, smart_gc: true },
+          compaction: { prune: true, smart_gc: true } as any,
         },
       },
     ),
