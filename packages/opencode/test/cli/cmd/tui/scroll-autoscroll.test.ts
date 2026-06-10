@@ -4,7 +4,7 @@ import {
   autoscrollSpeed,
   AUTOSCROLL_DEADZONE,
   AUTOSCROLL_SPEED_CAP,
-} from "../../../../src/cli/cmd/tui/util/scroll-autoscroll"
+} from "../../../../../tui/src/util/scroll-autoscroll"
 
 describe("autoscrollSpeed", () => {
   describe("deadzone", () => {

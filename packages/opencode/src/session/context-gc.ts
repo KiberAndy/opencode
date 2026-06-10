@@ -1,4 +1,4 @@
-import type { MessageV2 } from "./message-v2"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
 
 /**
  * Tool names whose completed outputs are never evicted by the smart GC.
@@ -82,7 +82,7 @@ export interface Rules {
 export interface ToolCallRef {
   readonly messageIndex: number
   readonly partIndex: number
-  readonly part: MessageV2.ToolPart
+  readonly part: SessionV1.ToolPart
 }
 
 /**
@@ -107,7 +107,7 @@ export function isActive(rules: Rules | undefined): boolean {
  * are skipped because their `state.output` either does not exist yet or
  * is not used by `toModelMessagesEffect`.
  */
-export function collectCompletedToolCalls(messages: readonly MessageV2.WithParts[]): ToolCallRef[] {
+export function collectCompletedToolCalls(messages: readonly SessionV1.WithParts[]): ToolCallRef[] {
   return messages.flatMap((msg, messageIndex) =>
     msg.parts.flatMap((part, partIndex): ToolCallRef[] => {
       if (part.type !== "tool") return []
@@ -133,7 +133,7 @@ export function collectCompletedToolCalls(messages: readonly MessageV2.WithParts
  *   state before mutating.
  * - Protected tool names (see `PROTECTED_TOOLS`) are never returned.
  */
-export function selectEvictions(messages: readonly MessageV2.WithParts[], rules: Rules = {}): Set<string> {
+export function selectEvictions(messages: readonly SessionV1.WithParts[], rules: Rules = {}): Set<string> {
   const calls = collectCompletedToolCalls(messages)
   if (calls.length === 0) return new Set()
 
@@ -271,7 +271,7 @@ function pickString(input: Record<string, unknown> | undefined, key: string): st
   return typeof value === "string" ? value : undefined
 }
 
-function patchedFilePaths(part: MessageV2.ToolPart): string[] {
+function patchedFilePaths(part: SessionV1.ToolPart): string[] {
   if (part.state.status !== "completed") return []
   const files = part.state.metadata?.["files"]
   if (!Array.isArray(files)) return []

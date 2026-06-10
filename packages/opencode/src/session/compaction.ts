@@ -302,7 +302,7 @@ const layer = Layer.effect(
               smartCount++
             }
           }
-          if (smartCount > 0) log.info("smart_gc.evicted", { count: smartCount })
+          if (smartCount > 0) Effect.logInfo("smart_gc.evicted", { count: smartCount })
         }
       }
 

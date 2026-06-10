@@ -3,11 +3,11 @@ import * as Tool from "./tool"
 import { LSP } from "@/lsp/lsp"
 import { createTwoFilesPatch, diffLines } from "diff"
 import DESCRIPTION from "./copy.txt"
-import { Bus } from "../bus"
-import { File } from "../file"
-import { FileWatcher } from "../file/watcher"
+import { FileSystem } from "@opencode-ai/core/filesystem"
+import { Watcher } from "@opencode-ai/core/filesystem/watcher"
+import { EventV2Bridge } from "@/event-v2-bridge"
 import { Format } from "../format"
-import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import * as path from "path"
 import { InstanceState } from "@/effect/instance-state"
 import { trimDiff } from "./edit"
@@ -314,9 +314,9 @@ export const CopyTool = Tool.define(
   "copy",
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
-    const afs = yield* AppFileSystem.Service
+    const fs = yield* FSUtil.Service
     const format = yield* Format.Service
-    const bus = yield* Bus.Service
+    const events = yield* EventV2Bridge.Service
 
     // Capture semaphore factory in closure — no R leakage into execute
     const lock = (p: string) => getLock(p)
@@ -343,7 +343,7 @@ export const CopyTool = Tool.define(
           yield* lock(destFile).withPermits(1)(Effect.void)
 
           // ── 4. Source file checks ───────────────────────────────
-          const sourceExists = yield* afs.existsSafe(sourceFile)
+          const sourceExists = yield* fs.existsSafe(sourceFile)
           if (!sourceExists) {
             throw new CopyToolError({
               reason: "SourceNotFound",
@@ -351,7 +351,7 @@ export const CopyTool = Tool.define(
             })
           }
 
-          const sourceStat = yield* afs
+          const sourceStat = yield* fs
             .stat(sourceFile)
             .pipe(Effect.catch(() => Effect.succeed(undefined)))
 
@@ -363,11 +363,11 @@ export const CopyTool = Tool.define(
           }
 
           // ── 5. Destination file checks ──────────────────────────
-          const destExists = yield* afs.existsSafe(destFile)
+          const destExists = yield* fs.existsSafe(destFile)
           if (!destExists) {
-            yield* afs.writeWithDirs(destFile, "")
+            yield* fs.writeWithDirs(destFile, "")
           } else {
-            const destStat = yield* afs
+            const destStat = yield* fs
               .stat(destFile)
               .pipe(Effect.catch(() => Effect.succeed(undefined)))
 
@@ -380,8 +380,8 @@ export const CopyTool = Tool.define(
           }
 
           // ── 6. Read contents ────────────────────────────────────
-          const sourceRaw = yield* afs.readFileString(sourceFile)
-          const destRaw = yield* afs.readFileString(destFile)
+          const sourceRaw = yield* fs.readFileString(sourceFile)
+          const destRaw = yield* fs.readFileString(destFile)
           const destEnding = detectLineEnding(destRaw)
 
           // ── 7. Extract source content ───────────────────────────
@@ -409,7 +409,7 @@ export const CopyTool = Tool.define(
 
           // ── 8. Validate source unchanged ────────────────────────
           if (params.validate !== false) {
-            const sourceReread = yield* afs.readFileString(sourceFile)
+            const sourceReread = yield* fs.readFileString(sourceFile)
             if (sourceReread !== sourceRaw) {
               const revalidated = extractSourceContent(
                 sourceReread,
@@ -479,10 +479,10 @@ export const CopyTool = Tool.define(
           })
 
           // ── 13. Write & notify ──────────────────────────────────
-          yield* afs.writeWithDirs(destFile, newDestContent)
+          yield* fs.writeWithDirs(destFile, newDestContent)
           yield* format.file(destFile)
-          yield* bus.publish(File.Event.Edited, { file: destFile })
-          yield* bus.publish(FileWatcher.Event.Updated, {
+          yield* events.publish(FileSystem.Event.Edited, { file: destFile })
+          yield* events.publish(Watcher.Event.Updated, {
             file: destFile,
             event: destExists ? "change" : "add",
           })

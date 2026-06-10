@@ -364,7 +364,13 @@ const layer = Layer.effect(
             redirectUri: oauthConfig?.redirectUri,
           },
           {
+<<<<<<< HEAD
             onRedirect: async () => {},
+=======
+            onRedirect: async (url) => {
+              Effect.logInfo("oauth redirect requested", { key, url: url.toString() }).pipe(Effect.runFork)
+            },
+>>>>>>> bad3715718 (fix(opencode): resolve typecheck errors in mcp and tool tests)
           },
           auth,
         )
@@ -379,46 +385,58 @@ const layer = Layer.effect(
       let lastStatus: Status | undefined
 
       const result = yield* connectTransport(transport, connectTimeout).pipe(
-        Effect.map((client) => ({ client, transportName: "StreamableHTTP" })),
-        Effect.catch((error) => {
-          const lastError = error instanceof Error ? error : new Error(String(error))
-          const isAuthError =
-            error instanceof UnauthorizedError || (authProvider && lastError.message.includes("OAuth"))
+        Effect.map((client) => ({ client })),
+        Effect.catch((error) =>
+          Effect.gen(function* () {
+            const lastError = error instanceof Error ? error : new Error(String(error))
+            const isAuthError =
+              error instanceof UnauthorizedError || (authProvider && lastError.message.includes("OAuth"))
 
-          if (isAuthError) {
-            if (lastError.message.includes("registration") || lastError.message.includes("client_id")) {
-              lastStatus = {
-                status: "needs_client_registration" as const,
-                error: "Server does not support dynamic client registration. Please provide clientId in config.",
+            if (isAuthError) {
+              yield* Effect.logInfo("mcp server requires authentication", { key, transport: "StreamableHTTP" })
+
+              if (lastError.message.includes("registration") || lastError.message.includes("client_id")) {
+                lastStatus = {
+                  status: "needs_client_registration" as const,
+                  error: "Server does not support dynamic client registration. Please provide clientId in config.",
+                }
+                return events
+                  .publish(TuiEvent.ToastShow, {
+                    title: "MCP Authentication Required",
+                    message: `Server "${key}" requires a pre-registered client ID. Add clientId to your config.`,
+                    variant: "warning",
+                    duration: 8000,
+                  })
+                  .pipe(Effect.ignore, Effect.as(undefined))
+              } else {
+                pendingOAuthTransports.set(key, { transport })
+                lastStatus = { status: "needs_auth" as const }
+                return events
+                  .publish(TuiEvent.ToastShow, {
+                    title: "MCP Authentication Required",
+                    message: `Server "${key}" requires authentication. Run: opencode mcp auth ${key}`,
+                    variant: "warning",
+                    duration: 8000,
+                  })
+                  .pipe(Effect.ignore, Effect.as(undefined))
               }
-              return events
-                .publish(TuiEvent.ToastShow, {
-                  title: "MCP Authentication Required",
-                  message: `Server "${key}" requires a pre-registered client ID. Add clientId to your config.`,
-                  variant: "warning",
-                  duration: 8000,
-                })
-                .pipe(Effect.ignore, Effect.as(undefined))
-            } else {
-              pendingOAuthTransports.set(key, { transport })
-              lastStatus = { status: "needs_auth" as const }
-              return events
-                .publish(TuiEvent.ToastShow, {
-                  title: "MCP Authentication Required",
-                  message: `Server "${key}" requires authentication. Run: opencode mcp auth ${key}`,
-                  variant: "warning",
-                  duration: 8000,
-                })
-                .pipe(Effect.ignore, Effect.as(undefined))
             }
-          }
 
-          lastStatus = { status: "failed" as const, error: lastError.message }
-          return Effect.void
-        }),
+            yield* Effect.logDebug("http transport connection failed", {
+              key,
+              url: mcp.url,
+              error: lastError.message,
+            })
+            lastStatus = { status: "failed" as const, error: lastError.message }
+            return Effect.void
+          }),
+        ),
       )
 
-      if (result) return { client: result.client, status: { status: "connected" } as Status }
+      if (result) {
+        yield* Effect.logInfo("connected", { key, transport: "StreamableHTTP" })
+        return { client: result.client as MCPClient | undefined, status: { status: "connected" } as Status }
+      }
 
       return {
         client: undefined as MCPClient | undefined,

@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "@/tool/truncate"
-import { provideInstance } from "../fixture/fixture"
+import { provideInstance, testInstanceStoreLayer } from "../fixture/fixture"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import {
   QuoteTool,
@@ -67,9 +67,7 @@ function exec(args: Args) {
 
 function execInInstance(args: Args) {
   return Effect.runPromise(
-    provideInstance(projectRoot)(
-      exec(args)
-    )
+    provideInstance(projectRoot)(exec(args)).pipe(Effect.provide(testInstanceStoreLayer)),
   )
 }
 
