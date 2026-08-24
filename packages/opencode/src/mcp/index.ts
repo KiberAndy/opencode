@@ -364,13 +364,9 @@ const layer = Layer.effect(
             redirectUri: oauthConfig?.redirectUri,
           },
           {
-<<<<<<< HEAD
-            onRedirect: async () => {},
-=======
             onRedirect: async (url) => {
               Effect.logInfo("oauth redirect requested", { key, url: url.toString() }).pipe(Effect.runFork)
             },
->>>>>>> bad3715718 (fix(opencode): resolve typecheck errors in mcp and tool tests)
           },
           auth,
         )
