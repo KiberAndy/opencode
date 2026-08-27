@@ -12,6 +12,8 @@ import { Agent } from "../../src/agent/agent"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Truncate } from "../../src/tool/truncate"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionID, MessageID } from "../../src/session/schema"
 import type * as Copy from "../../src/tool/copy"
 
@@ -45,16 +47,19 @@ afterEach(async () => {
   await disposeAllInstances()
 })
 
-const runtime = ManagedRuntime.make(
-  Layer.mergeAll(
-    LSP.defaultLayer,
-    FSUtil.defaultLayer,
-    Format.defaultLayer,
-    EventV2Bridge.defaultLayer,
-    Truncate.defaultLayer,
-    Agent.defaultLayer,
-  ),
+const copyLayer = AppNodeBuilder.build(
+  LayerNode.group([
+    LSP.node,
+    FSUtil.node,
+    Format.node,
+    EventV2Bridge.node,
+    Truncate.node,
+    Agent.node,
+    CrossSpawnSpawner.node,
+  ]),
 )
+
+const runtime = ManagedRuntime.make(copyLayer)
 
 afterAll(async () => {
   await runtime.dispose()
@@ -62,7 +67,7 @@ afterAll(async () => {
 
 const storeLayer = Layer.mergeAll(
   testInstanceStoreLayer,
-  CrossSpawnSpawner.defaultLayer,
+  AppNodeBuilder.build(CrossSpawnSpawner.node),
 )
 
 function runInInstance<A>(dir: string, effect: Effect.Effect<A, never, never>) {
@@ -80,16 +85,7 @@ function runCopyEffect(dir: string, params: CopyParams) {
     const copy = yield* info.init()
     return yield* copy.execute(params, ctx as any)
   }).pipe(
-    Effect.provide(
-      Layer.mergeAll(
-        LSP.defaultLayer,
-        FSUtil.defaultLayer,
-        Format.defaultLayer,
-        EventV2Bridge.defaultLayer,
-        Truncate.defaultLayer,
-        Agent.defaultLayer,
-      ),
-    ),
+    Effect.provide(copyLayer),
   )
 }
 
@@ -117,16 +113,7 @@ async function runCopy(
       }
       return { result, content: "" as const }
     }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          LSP.defaultLayer,
-          FSUtil.defaultLayer,
-          Format.defaultLayer,
-          EventV2Bridge.defaultLayer,
-          Truncate.defaultLayer,
-          Agent.defaultLayer,
-        ),
-      ),
+      Effect.provide(copyLayer),
     ),
   )
 }

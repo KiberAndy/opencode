@@ -4,6 +4,8 @@ import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "@/tool/truncate"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { provideInstance, testInstanceStoreLayer } from "../fixture/fixture"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import {
@@ -58,8 +60,7 @@ function exec(args: Args) {
     Effect.provide(
       Layer.mergeAll(
         FetchHttpClient.layer,
-        Truncate.defaultLayer,
-        Agent.defaultLayer,
+        AppNodeBuilder.build(LayerNode.group([Truncate.node, Agent.node])),
       ),
     ),
   )

@@ -154,6 +154,9 @@ export const Info = Schema.Struct({
       prune: Schema.optional(Schema.Boolean).annotate({
         description: "Enable pruning of old tool outputs (default: false)",
       }),
+      smart_gc: Schema.optional(Schema.Boolean).annotate({
+        description: "Enable content-aware eviction during pruning (default: true)",
+      }),
       tail_turns: Schema.optional(NonNegativeInt).annotate({
         description:
           "Maximum number of recent user turns, including their following assistant/tool responses, to keep verbatim during compaction. By default retention is limited only by the preserved token budget.",

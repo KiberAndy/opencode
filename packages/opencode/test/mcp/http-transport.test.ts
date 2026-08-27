@@ -1,6 +1,7 @@
 import { describe, expect, mock, beforeEach } from "bun:test"
 import { Cause, Effect, Exit } from "effect"
 import { testEffect } from "../lib/effect"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 
 // ── Mock infrastructure ──────────────────────────────────────────────
 
@@ -95,6 +96,13 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       return { resources: [] }
     }
     setNotificationHandler() {}
+    setRequestHandler() {}
+    getServerCapabilities() {
+      return { tools: {} }
+    }
+    getInstructions() {
+      return undefined
+    }
     async request(
       _request: { method: string },
       schema: { parse: (value: unknown) => unknown },
@@ -115,7 +123,7 @@ beforeEach(() => {
 })
 
 const { MCP } = await import("../../src/mcp/index")
-const it = testEffect(MCP.defaultLayer)
+const it = testEffect(AppNodeBuilder.build(MCP.node))
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
