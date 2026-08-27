@@ -396,25 +396,27 @@ const layer = Layer.effect(
                   status: "needs_client_registration" as const,
                   error: "Server does not support dynamic client registration. Please provide clientId in config.",
                 }
-                return events
+                yield* events
                   .publish(TuiEvent.ToastShow, {
                     title: "MCP Authentication Required",
                     message: `Server "${key}" requires a pre-registered client ID. Add clientId to your config.`,
                     variant: "warning",
                     duration: 8000,
                   })
-                  .pipe(Effect.ignore, Effect.as(undefined))
+                  .pipe(Effect.ignore)
+                return undefined
               } else {
                 pendingOAuthTransports.set(key, { transport })
                 lastStatus = { status: "needs_auth" as const }
-                return events
+                yield* events
                   .publish(TuiEvent.ToastShow, {
                     title: "MCP Authentication Required",
                     message: `Server "${key}" requires authentication. Run: opencode mcp auth ${key}`,
                     variant: "warning",
                     duration: 8000,
                   })
-                  .pipe(Effect.ignore, Effect.as(undefined))
+                  .pipe(Effect.ignore)
+                return undefined
               }
             }
 
@@ -424,7 +426,7 @@ const layer = Layer.effect(
               error: lastError.message,
             })
             lastStatus = { status: "failed" as const, error: lastError.message }
-            return Effect.void
+            return undefined
           }),
         ),
       )

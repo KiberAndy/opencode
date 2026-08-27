@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { Config } from "@/config/config"
 import { Agent } from "../../src/agent/agent"
 import { Plugin } from "../../src/plugin"
@@ -11,7 +14,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import type { Provider } from "@/provider/provider"
+import { Provider } from "@/provider/provider"
 import * as SessionProcessorModule from "../../src/session/processor"
 import { ProviderTest } from "../fake/provider"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -557,24 +560,13 @@ function fakeProcessor() {
   )
 }
 
-const deps = Layer.mergeAll(
-  wide().layer,
-  fakeProcessor(),
-  Agent.defaultLayer,
-  Plugin.defaultLayer,
-  Config.defaultLayer,
-  RuntimeFlags.layer({ experimentalEventSystem: true }),
-  EventV2Bridge.defaultLayer,
-)
-
-const env = Layer.mergeAll(
-  SessionNs.defaultLayer,
-  CrossSpawnSpawner.defaultLayer,
-  SessionCompaction.layer.pipe(
-    Layer.provide(SessionNs.defaultLayer),
-    Layer.provideMerge(deps),
-    Layer.provide(CrossSpawnSpawner.defaultLayer),
-  ),
+const env = AppNodeBuilder.build(
+  LayerNode.group([SessionCompaction.node, SessionNs.node, CrossSpawnSpawner.node, SessionProjector.node]),
+  [
+    [Provider.node, wide().layer],
+    [SessionProcessorModule.node, fakeProcessor()],
+    [RuntimeFlags.node, RuntimeFlags.layer({ experimentalEventSystem: true })],
+  ],
 ) as Layer.Layer<any, any, never>
 
 const it = testEffect(env)
