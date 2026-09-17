@@ -83,10 +83,10 @@ git reset --hard $newTag
 if ($LASTEXITCODE -ne 0) { throw "Не могу сбросить dev до $newTag" }
 
 Write-Host "Пушу dev..." -ForegroundColor Gray
-git push origin dev --force-with-lease --no-verify
+git push -u origin dev --force-with-lease --no-verify
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ОШИБКА: Не могу запушить dev" -ForegroundColor Red
-    Write-Host "Попробуй вручную: git push origin dev --force-with-lease --no-verify" -ForegroundColor Yellow
+    Write-Host "Попробуй вручную: git push -u origin dev --force-with-lease --no-verify" -ForegroundColor Yellow
     exit 1
 }
 Write-Host "dev обновлён до $newTag" -ForegroundColor Green
@@ -154,9 +154,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "=== Пушу fork ===" -ForegroundColor Cyan
-git push origin fork --force-with-lease --no-verify
+git push -u origin fork --force-with-lease --no-verify
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ОШИБКА push. Попробуй: git push origin fork --force-with-lease --no-verify" -ForegroundColor Red
+    Write-Host "ОШИБКА push. Попробуй: git push -u origin fork --force-with-lease --no-verify" -ForegroundColor Red
     exit 1
 }
 
@@ -176,7 +176,7 @@ Remove-Item "$root\continue-update.ps1" -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "=== Пушу fork ===" -ForegroundColor Cyan
-git push origin fork --force-with-lease --no-verify
+git push -u origin fork --force-with-lease --no-verify
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ОШИБКА push" -ForegroundColor Red
     exit 1

@@ -29,9 +29,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "=== Пушу fork ===" -ForegroundColor Cyan
-git push origin fork --force-with-lease --no-verify
+git push -u origin fork --force-with-lease --no-verify
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ОШИБКА push. Попробуй: git push origin fork --force-with-lease --no-verify" -ForegroundColor Red
+    Write-Host "ОШИБКА push. Попробуй: git push -u origin fork --force-with-lease --no-verify" -ForegroundColor Red
     exit 1
 }
 
