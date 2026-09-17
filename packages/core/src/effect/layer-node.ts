@@ -85,9 +85,19 @@ export function make<
 >(
   input: MakeInput<Implementation, Items, T>,
 ): Node<Layer.Success<Implementation>, Layer.Error<Implementation> | Error<Items[number]>, T> {
+  const name = input.service !== undefined ? input.service.key : input.name
+  input.deps.forEach((dep, index) => {
+    if (dep === undefined) {
+      throw new Error(
+        `LayerNode.make(${JSON.stringify(name)}): dependency at index ${index} is undefined. ` +
+          `This usually means a circular import: the referenced module's "node" export had not ` +
+          `finished initializing yet when this file's top-level code ran.`,
+      )
+    }
+  })
   return {
     kind: "layer",
-    name: input.service !== undefined ? input.service.key : input.name,
+    name,
     service: input.service,
     implementation: input.layer,
     dependencies: input.deps,
