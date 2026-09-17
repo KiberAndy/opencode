@@ -33,7 +33,18 @@ const IS_PREVIEW = CHANNEL !== "latest"
 
 const VERSION = await (async () => {
   if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
-  if (IS_PREVIEW) return `0.0.0-${CHANNEL}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}`
+  if (IS_PREVIEW) {
+    // Base the preview version on the nearest reachable release tag (e.g. the upstream
+    // tag this branch was last rebased onto) instead of a bare "0.0.0". A bare "0.0.0"
+    // makes any semver comparison against this build (e.g. server-side minimum-version
+    // gates) treat it as older than every real release, even when the branch is actually
+    // built on top of a recent tag plus local patches.
+    const baseTag = await $`git describe --tags --abbrev=0 HEAD`
+      .text()
+      .then((x) => x.trim().replace(/^v/, ""))
+      .catch(() => "0.0.0")
+    return `${baseTag}-${CHANNEL}-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}`
+  }
   const version = await fetch("https://registry.npmjs.org/opencode-ai/latest")
     .then((res) => {
       if (!res.ok) throw new Error(res.statusText)
